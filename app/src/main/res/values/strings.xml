@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">MovieApp</string>
+    <string name="welcome_title">Welcome to MovieApp</string>
+    <string name="welcome_subtitle">Every great movie night starts with a little inspiration.</string>
+    <string name="welcome_about">About MovieApp</string>
+    <string name="welcome_hide_about">Close introduction</string>
+    <string name="welcome_description">A love for cinema. A space for discovery. Your next movie night starts here.</string>
+</resources>
