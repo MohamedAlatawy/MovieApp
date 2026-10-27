@@ -9,11 +9,6 @@ import com.example.movieapp.domain.eligibility.MovieCertificationEvidence
 import com.example.movieapp.domain.eligibility.MovieEligibilityPolicy
 import com.example.movieapp.domain.eligibility.ReleaseCertification
 
-/**
- * Refreshes are not serialized. Concurrent same-movie refreshes can overwrite newer decisions.
- * Ordering protection is deferred until List/Details integration.
- * No network request runs inside a database transaction.
- */
 class MovieRepository(
     private val client: TmdbClient,
     private val dao: MovieDao,
@@ -21,12 +16,7 @@ class MovieRepository(
     fun observeMovies() = dao.observeMovies()
     fun observeMovie(id: Int) = dao.observeMovie(id)
 
-    /**
-     * Both List and Details pass only an ID; stale candidate DTOs cannot authorize writes.
-     * Transport, malformed response and identity errors propagate without changing cache.
-     * Successful complete evidence that the policy denies revokes the existing row.
-     * Cancellation propagates naturally.
-     */
+    /** Denied eligibility revokes cached content; request failures preserve it. */
     suspend fun refreshMovie(id: Int): MovieEligibilityPolicy.Decision {
         require(id > 0) { "Movie ID must be positive." }
         val details = client.movieDetails(id)
@@ -50,7 +40,6 @@ class MovieRepository(
     }
 }
 
-/** Preserve every country and release record, including blank/conflicting certifications. */
 private fun MovieReleaseDatesDto.toEvidence() = MovieCertificationEvidence(
     movieId = id,
     records = results.flatMap { country ->
