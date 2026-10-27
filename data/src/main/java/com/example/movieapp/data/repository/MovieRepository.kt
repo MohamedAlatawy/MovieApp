@@ -4,6 +4,7 @@ import androidx.paging.ExperimentalPagingApi
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import com.example.movieapp.data.paging.HomeRemoteMediator
+import com.example.movieapp.data.paging.SearchPagingSource
 
 import com.example.movieapp.data.local.MovieDao
 import com.example.movieapp.data.local.MovieEntity
@@ -26,6 +27,11 @@ class MovieRepository(
     ).flow
 
     fun observeMovies() = dao.observeMovies()
+
+    fun searchMovies(query: String) = Pager(
+        config = PagingConfig(pageSize = 20, initialLoadSize = 20, enablePlaceholders = false),
+        pagingSourceFactory = { SearchPagingSource(query.trim(), client, this, dao) },
+    ).flow
     fun observeMovie(id: Int) = dao.observeMovie(id)
 
     /** Denied eligibility revokes cached content; request failures preserve it. */
