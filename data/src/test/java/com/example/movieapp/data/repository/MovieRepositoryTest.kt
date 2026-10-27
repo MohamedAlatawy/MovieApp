@@ -127,6 +127,20 @@ class MovieRepositoryTest {
         assertTrue(dao.writes.isEmpty())
     }
 
+    @Test fun verifiedDetailsMetadataPreservesAllAllowedUsRatings() = runBlocking {
+        server.enqueue(json("""{"id":42,"title":"Example","adult":false,"overview":"A story","vote_average":7.4,"genres":[{"id":1,"name":"Adventure"},{"id":2,"name":"Animation"}]}"""))
+        server.enqueue(json("""{"id":42,"results":[{"iso_3166_1":"US","release_dates":[{"certification":" pg-13 "},{"certification":"PG"},{"certification":""},{"certification":"PG"}]},{"iso_3166_1":"GB","release_dates":[{"certification":"12"}]}]}"""))
+        assertEquals(Decision.Allow, repository.refreshMovie(42))
+        val movie = dao.findMovie(42)!!
+        assertEquals("A story", movie.overview)
+        assertEquals(7.4, movie.voteAverage!!, 0.0)
+        assertEquals("Adventure · Animation", movie.genres)
+        assertEquals("PG / PG-13", movie.usCertifications)
+        enqueueVerification("G")
+        repository.refreshMovie(42)
+        assertEquals(movie.discoveryOrder, dao.findMovie(42)!!.discoveryOrder)
+        assertNull(dao.findMovie(42)!!.genres)
+    }
     private suspend fun expectInvalidResponse() {
         try {
             repository.refreshMovie(42)

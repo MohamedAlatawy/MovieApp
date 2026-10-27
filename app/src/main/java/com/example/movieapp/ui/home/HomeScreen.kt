@@ -1,6 +1,7 @@
 package com.example.movieapp.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -26,7 +27,7 @@ import com.example.movieapp.data.remote.TmdbException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(movies: LazyPagingItems<MovieEntity>) {
+fun HomeScreen(movies: LazyPagingItems<MovieEntity>, onMovieClick: (Int) -> Unit = {}) {
     val states = movies.loadState
     val refresh = states.mediator?.refresh ?: states.refresh
     val append = states.mediator?.append ?: states.append
@@ -82,7 +83,7 @@ fun HomeScreen(movies: LazyPagingItems<MovieEntity>) {
                     }
                 }
                 items(movies.itemCount, key = movies.itemKey { it.id }) { index ->
-                    MovieCard(movies[index])
+                    MovieCard(movies[index], onMovieClick)
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     val appendError = (append as? LoadState.Error)
@@ -104,8 +105,9 @@ fun HomeScreen(movies: LazyPagingItems<MovieEntity>) {
 }
 
 @Composable
-private fun MovieCard(movie: MovieEntity?) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun MovieCard(movie: MovieEntity?, onMovieClick: (Int) -> Unit) {
+    Column(Modifier.clickable(enabled = movie != null) { movie?.let { onMovieClick(it.id) } },
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SubcomposeAsyncImage(
             model = posterUrl(movie?.posterPath),
             contentDescription = movie?.let { "Poster for ${it.title}" },

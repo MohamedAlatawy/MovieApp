@@ -1,6 +1,7 @@
 package com.example.movieapp.ui.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -28,7 +29,8 @@ import com.example.movieapp.ui.home.posterUrl
 import kotlinx.coroutines.flow.Flow
 
 @Composable
-fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<PagingData<MovieEntity>>) {
+fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<PagingData<MovieEntity>>,
+    onMovieClick: (Int) -> Unit = {}) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Text("Find a movie", Modifier.padding(start = 16.dp, top = 16.dp),
             style = MaterialTheme.typography.headlineMedium)
@@ -56,7 +58,7 @@ fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<P
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     items(movies.itemCount, key = movies.itemKey { it.id }) { index ->
-                        movies[index]?.let { SearchMovieCard(it) }
+                        movies[index]?.let { SearchMovieCard(it, onMovieClick) }
                     }
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Box(Modifier.fillMaxWidth().heightIn(min = 144.dp), contentAlignment = Alignment.Center) {
@@ -74,8 +76,8 @@ fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<P
 }
 
 @Composable
-private fun SearchMovieCard(movie: MovieEntity) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun SearchMovieCard(movie: MovieEntity, onMovieClick: (Int) -> Unit) {
+    Column(Modifier.clickable { onMovieClick(movie.id) }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SubcomposeAsyncImage(
             model = posterUrl(movie.posterPath), contentDescription = "Poster for ${movie.title}",
             modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(16.dp)),
