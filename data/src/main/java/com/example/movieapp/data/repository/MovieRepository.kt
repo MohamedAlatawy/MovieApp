@@ -50,6 +50,12 @@ class MovieRepository(
                 backdropPath = details.backdropPath,
                 releaseDate = details.releaseDate,
                 voteAverage = details.voteAverage,
+                genres = details.genres?.map { it.name.trim() }?.filter { it.isNotEmpty() }
+                    ?.distinct()?.joinToString(" · ")?.takeIf { it.isNotEmpty() },
+                usCertifications = releases.results.filter { it.countryCode.asciiUppercase() == "US" }
+                    .flatMap { it.releaseDates }.mapNotNull { it.certification?.trim() }
+                    .filter { it.isNotEmpty() }.map { it.asciiUppercase() }
+                    .distinct().sorted().joinToString(" / "),
             ))
         } else {
             dao.delete(id)
@@ -64,3 +70,7 @@ private fun MovieReleaseDatesDto.toEvidence() = MovieCertificationEvidence(
         country.releaseDates.map { ReleaseCertification(country.countryCode, it.certification) }
     },
 )
+
+private fun String.asciiUppercase() = trim().map {
+    if (it in 'a'..'z') it.uppercaseChar() else it
+}.joinToString("")

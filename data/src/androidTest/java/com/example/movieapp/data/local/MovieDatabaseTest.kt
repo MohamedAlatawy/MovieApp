@@ -58,7 +58,7 @@ class MovieDatabaseTest {
                 old.version = 1
             }
             val migrated = Room.databaseBuilder(context, MovieDatabase::class.java, name)
-                .addMigrations(MovieDatabase.MIGRATION_1_2).build()
+                .addMigrations(MovieDatabase.MIGRATION_1_2, MovieDatabase.MIGRATION_2_3).build()
             try {
                     val migratedDao = migrated.movieDao()
                     val rows = migratedDao.observeMovies().first()
@@ -76,8 +76,33 @@ class MovieDatabaseTest {
         }
     }
 
+    @Test fun versionTwoMigrationPreservesVerifiedDetailsAndOrder() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "details-migration-${java.util.UUID.randomUUID()}.db"
+        val file = context.getDatabasePath(name)
+        file.parentFile!!.mkdirs()
+        try {
+            SQLiteDatabase.openOrCreateDatabase(file, null).use { old ->
+                old.execSQL("CREATE TABLE movies (id INTEGER NOT NULL PRIMARY KEY, title TEXT NOT NULL, overview TEXT, posterPath TEXT, backdropPath TEXT, releaseDate TEXT, voteAverage REAL, discoveryOrder INTEGER NOT NULL DEFAULT 0)")
+                old.execSQL("INSERT INTO movies VALUES (9, 'Saved movie', 'Keep synopsis', NULL, NULL, '2025-01-01', 7.5, 17)")
+                old.version = 2
+            }
+            val migrated = Room.databaseBuilder(context, MovieDatabase::class.java, name)
+                .addMigrations(MovieDatabase.MIGRATION_2_3).build()
+            try {
+                val row = migrated.movieDao().findMovie(9)!!
+                assertEquals("Keep synopsis", row.overview)
+                assertEquals(17L, row.discoveryOrder)
+                assertNull(row.genres)
+                assertNull(row.usCertifications)
+                migrated.movieDao().saveVerified(row.copy(genres = "Adventure", usCertifications = "PG"))
+                assertEquals(17L, migrated.movieDao().findMovie(9)!!.discoveryOrder)
+                assertEquals("PG", migrated.movieDao().findMovie(9)!!.usCertifications)
+            } finally { migrated.close() }
+        } finally { context.deleteDatabase(name) }
+    }
     @Test fun insertReadUpdateAndDelete() = runBlocking {
-        val movie = movie()
+        val movie = movie().copy(genres = "Animation · Adventure", usCertifications = "G / PG")
         dao.upsert(movie)
         assertEquals(movie, dao.findMovie(42))
         dao.upsert(movie.copy(title = "Updated"))

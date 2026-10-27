@@ -15,6 +15,8 @@ data class MovieEntity(
     val releaseDate: String?,
     val voteAverage: Double?,
     @ColumnInfo(defaultValue = "0") val discoveryOrder: Long = 0,
+    val genres: String? = null,
+    val usCertifications: String? = null,
 ) {
     init { require(id > 0) { "Movie ID must be positive." } }
 }
