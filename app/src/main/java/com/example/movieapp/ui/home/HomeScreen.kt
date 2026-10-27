@@ -40,7 +40,8 @@ fun HomeScreen(movies: LazyPagingItems<MovieEntity>, onMovieClick: (Int) -> Unit
                 title = {
                     Column {
                         Text("MovieApp", fontWeight = FontWeight.Bold)
-                        Text("Find your next movie night", style = MaterialTheme.typography.labelMedium)
+                        Text("Find your next movie night", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {
