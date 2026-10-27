@@ -147,11 +147,13 @@ class MovieRepositoryTest {
 
     /** Only persistence is fake; the real TmdbClient talks to local MockWebServer. */
     private class FakeMovieDao : MovieDao {
+        override fun pagingSource(): androidx.paging.PagingSource<Int, MovieEntity> = error("Not used in repository tests")
         private val rows = MutableStateFlow<List<MovieEntity>>(emptyList())
         val writes = mutableListOf<String>()
         override fun observeMovies(): Flow<List<MovieEntity>> = rows
         override fun observeMovie(id: Int) = rows.map { list -> list.find { it.id == id } }
         override suspend fun findMovie(id: Int) = rows.value.find { it.id == id }
+        override suspend fun nextDiscoveryOrder() = (rows.value.maxOfOrNull { it.discoveryOrder } ?: -1L) + 1
         override suspend fun upsert(movie: MovieEntity) {
             writes += "save"
             rows.value = rows.value.filterNot { it.id == movie.id } + movie

@@ -16,8 +16,15 @@ okhttp = "4.12.0"
 serialization = "1.9.0"
 room = "2.8.5"
 testRunner = "1.7.0"
+paging = "3.4.2"
+coil = "3.3.0"
 
 [libraries]
+paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }
+paging-compose = { module = "androidx.paging:paging-compose", version.ref = "paging" }
+room-paging = { module = "androidx.room:room-paging", version.ref = "room" }
+coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "testRunner" }

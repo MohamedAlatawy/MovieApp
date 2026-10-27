@@ -1,5 +1,10 @@
 package com.example.movieapp.data.repository
 
+import androidx.paging.ExperimentalPagingApi
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import com.example.movieapp.data.paging.HomeRemoteMediator
+
 import com.example.movieapp.data.local.MovieDao
 import com.example.movieapp.data.local.MovieEntity
 import com.example.movieapp.data.remote.MovieReleaseDatesDto
@@ -13,6 +18,13 @@ class MovieRepository(
     private val client: TmdbClient,
     private val dao: MovieDao,
 ) {
+    @OptIn(ExperimentalPagingApi::class)
+    fun homeMovies() = Pager(
+        config = PagingConfig(pageSize = 20, enablePlaceholders = true),
+        remoteMediator = HomeRemoteMediator(client, this, dao),
+        pagingSourceFactory = dao::pagingSource,
+    ).flow
+
     fun observeMovies() = dao.observeMovies()
     fun observeMovie(id: Int) = dao.observeMovie(id)
 
@@ -24,7 +36,7 @@ class MovieRepository(
         if (details.id != id || releases.id != id) throw TmdbException.InvalidResponse()
         val decision = MovieEligibilityPolicy.evaluate(id, details.adult, releases.toEvidence())
         if (decision == MovieEligibilityPolicy.Decision.Allow) {
-            dao.upsert(MovieEntity(
+            dao.saveVerified(MovieEntity(
                 id = details.id,
                 title = details.title,
                 overview = details.overview,
