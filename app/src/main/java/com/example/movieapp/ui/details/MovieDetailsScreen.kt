@@ -46,14 +46,24 @@ fun MovieDetailsScreen(state: MovieDetailsState, onBack: () -> Unit, onRetry: ()
                     loading = { PosterPlaceholder() }, error = { PosterPlaceholder() },
                 )
                 Text(movie.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(movie.releaseDate?.takeIf { it.isNotBlank() } ?: "Release date unavailable")
+                Text(movie.releaseDate?.takeIf { it.isNotBlank() } ?: "Release date unavailable",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val rating = movie.voteAverage?.takeIf { it.isFinite() && it in 0.0..10.0 }
                 Text(rating?.let { "TMDb user rating: ${String.format(Locale.US, "%.1f", it)} / 10" }
-                    ?: "Rating unavailable")
+                    ?: "Rating unavailable", style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary)
                 Text(movie.genres?.takeIf { it.isNotBlank() } ?: "Genres unavailable",
-                    style = MaterialTheme.typography.titleMedium)
-                Text(movie.usCertifications?.takeIf { it.isNotBlank() }?.let { "Verified US certifications: $it" }
-                    ?: "US certification details unavailable")
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Surface(shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+                    Text(movie.usCertifications?.takeIf { it.isNotBlank() }?.let { "Verified US certifications: $it" }
+                        ?: "US certification details unavailable",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelLarge)
+                }
                 Text("Synopsis", style = MaterialTheme.typography.titleLarge)
                 Text(movie.overview?.takeIf { it.isNotBlank() } ?: "Synopsis unavailable",
                     style = MaterialTheme.typography.bodyLarge)

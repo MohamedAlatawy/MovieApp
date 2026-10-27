@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,11 +34,12 @@ fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<P
     onMovieClick: (Int) -> Unit = {}) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Text("Find a movie", Modifier.padding(start = 16.dp, top = 16.dp),
-            style = MaterialTheme.typography.headlineMedium)
+            style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         OutlinedTextField(
             value = query, onValueChange = onQueryChange,
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             label = { Text("Search movies") }, singleLine = true,
+            shape = RoundedCornerShape(16.dp),
             trailingIcon = {
                 if (query.isNotEmpty()) TextButton(onClick = { onQueryChange("") }) { Text("Clear") }
             },
