@@ -1,0 +1,76 @@
+package com.example.movieapp.data.repository
+
+import androidx.paging.ExperimentalPagingApi
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import com.example.movieapp.data.paging.HomeRemoteMediator
+import com.example.movieapp.data.paging.SearchPagingSource
+
+import com.example.movieapp.data.local.MovieDao
+import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.data.remote.MovieReleaseDatesDto
+import com.example.movieapp.data.remote.TmdbClient
+import com.example.movieapp.data.remote.TmdbException
+import com.example.movieapp.domain.eligibility.MovieCertificationEvidence
+import com.example.movieapp.domain.eligibility.MovieEligibilityPolicy
+import com.example.movieapp.domain.eligibility.ReleaseCertification
+
+class MovieRepository(
+    private val client: TmdbClient,
+    private val dao: MovieDao,
+) {
+    @OptIn(ExperimentalPagingApi::class)
+    fun homeMovies() = Pager(
+        config = PagingConfig(pageSize = 20, enablePlaceholders = true),
+        remoteMediator = HomeRemoteMediator(client, this, dao),
+        pagingSourceFactory = dao::pagingSource,
+    ).flow
+
+    fun observeMovies() = dao.observeMovies()
+
+    fun searchMovies(query: String) = Pager(
+        config = PagingConfig(pageSize = 20, initialLoadSize = 20, enablePlaceholders = false),
+        pagingSourceFactory = { SearchPagingSource(query.trim(), client, this, dao) },
+    ).flow
+    fun observeMovie(id: Int) = dao.observeMovie(id)
+
+    /** Denied eligibility revokes cached content; request failures preserve it. */
+    suspend fun refreshMovie(id: Int): MovieEligibilityPolicy.Decision {
+        require(id > 0) { "Movie ID must be positive." }
+        val details = client.movieDetails(id)
+        val releases = client.movieReleaseDates(id)
+        if (details.id != id || releases.id != id) throw TmdbException.InvalidResponse()
+        val decision = MovieEligibilityPolicy.evaluate(id, details.adult, releases.toEvidence())
+        if (decision == MovieEligibilityPolicy.Decision.Allow) {
+            dao.saveVerified(MovieEntity(
+                id = details.id,
+                title = details.title,
+                overview = details.overview,
+                posterPath = details.posterPath,
+                backdropPath = details.backdropPath,
+                releaseDate = details.releaseDate,
+                voteAverage = details.voteAverage,
+                genres = details.genres?.map { it.name.trim() }?.filter { it.isNotEmpty() }
+                    ?.distinct()?.joinToString(" · ")?.takeIf { it.isNotEmpty() },
+                usCertifications = releases.results.filter { it.countryCode.asciiUppercase() == "US" }
+                    .flatMap { it.releaseDates }.mapNotNull { it.certification?.trim() }
+                    .filter { it.isNotEmpty() }.map { it.asciiUppercase() }
+                    .distinct().sorted().joinToString(" / "),
+            ))
+        } else {
+            dao.delete(id)
+        }
+        return decision
+    }
+}
+
+private fun MovieReleaseDatesDto.toEvidence() = MovieCertificationEvidence(
+    movieId = id,
+    records = results.flatMap { country ->
+        country.releaseDates.map { ReleaseCertification(country.countryCode, it.certification) }
+    },
+)
+
+private fun String.asciiUppercase() = trim().map {
+    if (it in 'a'..'z') it.uppercaseChar() else it
+}.joinToString("")
