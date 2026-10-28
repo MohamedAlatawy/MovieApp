@@ -1,6 +1,6 @@
 package com.example.movieapp.ui.details
 
-import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.data.backend.DemoMovie
 import com.example.movieapp.data.remote.TmdbException
 import com.example.movieapp.domain.eligibility.MovieEligibilityPolicy.Decision
 import kotlinx.coroutines.Dispatchers
@@ -16,18 +16,18 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class MovieDetailsViewModelTest {
     private val dispatcher = StandardTestDispatcher()
-    private val movie = MovieEntity(42, "Verified", "Synopsis", null, null, "2026-01-01", 8.0)
+    private val movie = DemoMovie(42, "Verified", "Synopsis", null, "2026-01-01", 8.0)
 
     @Before fun setUp() { Dispatchers.setMain(dispatcher) }
     @After fun tearDown() { Dispatchers.resetMain() }
 
     @Test fun networkFailurePreservesCachedContentAndRetryUpdatesIt() = runTest(dispatcher) {
-        val cache = MutableStateFlow<MovieEntity?>(movie)
+        val cache = MutableStateFlow<DemoMovie?>(movie)
         var fail = true
         val model = MovieDetailsViewModel({ cache }) {
             if (fail) throw TmdbException.Network()
             cache.value = movie.copy(title = "Fresh verified")
-            Decision.Allow
+            true
         }
         model.open(42)
         advanceUntilIdle()
@@ -42,10 +42,10 @@ class MovieDetailsViewModelTest {
     }
 
     @Test fun deniedAndExternallyRevokedMoviesDisappear() = runTest(dispatcher) {
-        val cache = MutableStateFlow<MovieEntity?>(movie)
+        val cache = MutableStateFlow<DemoMovie?>(movie)
         var deny = false
         val model = MovieDetailsViewModel({ cache }) {
-            if (deny) { cache.value = null; Decision.Deny } else Decision.Allow
+            if (deny) { cache.value = null; false } else true
         }
         model.open(42)
         advanceUntilIdle()
@@ -86,7 +86,7 @@ class MovieDetailsViewModelTest {
         val model = MovieDetailsViewModel({ id -> MutableStateFlow(if (id == 42) movie else null) }) { id ->
             calls++
             if (id == 42) try { awaitCancellation() } finally { cancelled = true }
-            Decision.Allow
+            true
         }
         model.open(42)
         runCurrent()

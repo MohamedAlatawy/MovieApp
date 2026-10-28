@@ -1,4 +1,7 @@
 [versions]
+firebaseBom = "34.7.0"
+googleServices = "4.5.0"
+work = "2.11.0"
 agp = "9.4.1"
 coreKtx = "1.19.1"
 junit = "4.13.2"
@@ -20,6 +23,10 @@ paging = "3.4.2"
 coil = "3.3.0"
 
 [libraries]
+work-testing = { module = "androidx.work:work-testing", version.ref = "work" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }
 paging-compose = { module = "androidx.paging:paging-compose", version.ref = "paging" }
 room-paging = { module = "androidx.room:room-paging", version.ref = "room" }
@@ -55,6 +62,7 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 
 [plugins]
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

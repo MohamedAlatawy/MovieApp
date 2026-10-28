@@ -2,10 +2,8 @@ package com.example.movieapp.ui.details
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.movieapp.data.local.MovieEntity
-import com.example.movieapp.data.remote.TmdbException
-import com.example.movieapp.data.repository.MovieRepository
-import com.example.movieapp.domain.eligibility.MovieEligibilityPolicy.Decision
+import com.example.movieapp.data.backend.DemoMovie
+import com.example.movieapp.data.backend.BackendRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -16,7 +14,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class MovieDetailsState(
-    val movie: MovieEntity? = null,
+    val movie: DemoMovie? = null,
     val loading: Boolean = true,
     val denied: Boolean = false,
     val error: Boolean = false,
@@ -24,10 +22,10 @@ data class MovieDetailsState(
 
 @HiltViewModel
 class MovieDetailsViewModel internal constructor(
-    private val observeMovie: (Int) -> Flow<MovieEntity?>,
-    private val refreshMovie: suspend (Int) -> Decision,
+    private val observeMovie: (Int) -> Flow<DemoMovie?>,
+    private val refreshMovie: suspend (Int) -> Boolean,
 ) : ViewModel() {
-    @Inject constructor(repository: MovieRepository) : this(repository::observeMovie, repository::refreshMovie)
+    @Inject constructor(repository: BackendRepository) : this(repository::observeMovie, repository::refreshMovie)
 
     private val mutableState = MutableStateFlow(MovieDetailsState())
     val state = mutableState.asStateFlow()
@@ -58,11 +56,13 @@ class MovieDetailsViewModel internal constructor(
         refresh = viewModelScope.launch {
             mutableState.update { it.copy(loading = true, error = false) }
             try {
-                val denied = refreshMovie(id) == Decision.Deny
+                val denied = !refreshMovie(id)
                 mutableState.update {
                     it.copy(loading = false, denied = denied, movie = if (denied) null else it.movie)
                 }
-            } catch (_: TmdbException) {
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
                 mutableState.update { it.copy(loading = false, error = true) }
             }
         }

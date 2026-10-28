@@ -26,6 +26,18 @@ android {
         buildConfigField("String", "TMDB_READ_ACCESS_TOKEN", "\"$tmdbToken\"")
     }
 
+    buildTypes {
+        debug {
+            val baseUrl = providers.gradleProperty("backendBaseUrl").getOrElse("http://127.0.0.1:5187/")
+            require(baseUrl.matches(Regex("https?://[A-Za-z0-9.:-]+/")))
+            buildConfigField("String", "BACKEND_BASE_URL", "\"$baseUrl\"")
+        }
+        release {
+            val baseUrl = providers.gradleProperty("backendReleaseBaseUrl").getOrElse("https://backend.invalid/")
+            require(baseUrl.matches(Regex("https://[A-Za-z0-9.:-]+/")))
+            buildConfigField("String", "BACKEND_BASE_URL", "\"$baseUrl\"")
+        }
+    }
     buildFeatures { buildConfig = true }
 
     compileOptions {

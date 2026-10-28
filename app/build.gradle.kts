@@ -1,8 +1,17 @@
 plugins {
+    alias(libs.plugins.google.services) apply false
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+}
+
+if (file("google-services.json").exists()) {
+    val config = groovy.json.JsonSlurper().parse(file("google-services.json")) as Map<*, *>
+    require((config["project_info"] as? Map<*, *>)?.get("project_id") == "movieapp-19491") {
+        "Firebase client must belong to movieapp-19491"
+    }
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
@@ -38,6 +47,11 @@ android {
 }
 
 dependencies {
+    androidTestImplementation(libs.work.testing)
+    androidTestImplementation(libs.mockwebserver)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+    implementation(libs.work.runtime)
     implementation(project(":domain"))
     implementation(project(":data"))
     implementation(libs.room.runtime)

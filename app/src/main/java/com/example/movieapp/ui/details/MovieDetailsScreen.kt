@@ -50,7 +50,7 @@ fun MovieDetailsScreen(state: MovieDetailsState, onBack: () -> Unit, onRetry: ()
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val rating = movie.voteAverage?.takeIf { it.isFinite() && it in 0.0..10.0 }
-                Text(rating?.let { "TMDb user rating: ${String.format(Locale.US, "%.1f", it)} / 10" }
+                Text(rating?.let { "Demo rating: ${String.format(Locale.US, "%.1f", it)} / 10" }
                     ?: "Rating unavailable", style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary)
                 Text(movie.genres?.takeIf { it.isNotBlank() } ?: "Genres unavailable",
@@ -59,23 +59,23 @@ fun MovieDetailsScreen(state: MovieDetailsState, onBack: () -> Unit, onRetry: ()
                 Surface(shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-                    Text(movie.usCertifications?.takeIf { it.isNotBlank() }?.let { "Verified US certifications: $it" }
-                        ?: "US certification details unavailable",
+                    Text("Demo Data · US certification unverified",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.labelLarge)
                 }
                 Text("Synopsis", style = MaterialTheme.typography.titleLarge)
                 Text(movie.overview?.takeIf { it.isNotBlank() } ?: "Synopsis unavailable",
                     style = MaterialTheme.typography.bodyLarge)
+                Text("Updated: ${movie.lastModified}", style = MaterialTheme.typography.bodySmall)
             } else if (!state.loading) {
-                Text(if (state.denied) "This movie is not available for eligible browsing."
+                Text(if (state.denied) "This demo movie is unavailable."
                     else if (state.error) "Couldn't load this movie."
-                    else "No verified movie is available.", style = MaterialTheme.typography.titleLarge)
+                    else "No saved demo movie is available.", style = MaterialTheme.typography.titleLarge)
             } else {
-                Text("Loading verified movie details")
+                Text("Loading demo movie details")
             }
             if (state.error) {
-                Text(if (movie != null) "Couldn't refresh. Showing your previously verified saved movie."
+                Text(if (movie != null) "Couldn't refresh. Showing your saved demo movie."
                     else "Check your connection and try again.")
                 Button(onClick = onRetry, enabled = !state.loading) { Text("Retry") }
             }

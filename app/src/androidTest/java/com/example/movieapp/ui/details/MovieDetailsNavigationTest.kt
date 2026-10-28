@@ -9,7 +9,7 @@ import androidx.paging.LoadStates
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.example.movieapp.MovieAppContent
-import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.data.backend.DemoMovie
 import com.example.movieapp.ui.search.SearchState
 import com.example.movieapp.ui.theme.MovieAppTheme
 import kotlinx.coroutines.flow.flowOf
@@ -20,8 +20,8 @@ import org.junit.Test
 class MovieDetailsNavigationTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val rows = (1..60).map {
-        MovieEntity(it, "Movie $it", "A verified synopsis", null, null, "2026-01-01", 8.2,
-            genres = "Adventure", usCertifications = "PG / PG-13")
+        DemoMovie(it, "Movie $it", "A demo synopsis", null, "2026-01-01", 8.2,
+            genres = "Adventure")
     }
     private val idle = LoadState.NotLoading(true)
     private val results = flowOf(PagingData.from(rows, LoadStates(idle, idle, idle)))
@@ -46,7 +46,7 @@ class MovieDetailsNavigationTest {
         compose.onNodeWithText("Movie 21").performClick()
         compose.onNodeWithText("Movie details").assertIsDisplayed()
         compose.onNodeWithText("Synopsis").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("A verified synopsis").assertIsDisplayed()
+        compose.onNodeWithText("A demo synopsis").assertIsDisplayed()
         compose.onNodeWithText("Back").performClick()
         compose.onNodeWithText("Movie 21").assertIsDisplayed()
         val after = compose.onNodeWithText("Movie 21").fetchSemanticsNode().positionInRoot.y
@@ -72,12 +72,12 @@ class MovieDetailsNavigationTest {
         var state by mutableStateOf(MovieDetailsState(rows.first(), loading = false))
         var retries = 0
         compose.setContent { MovieAppTheme { MovieDetailsScreen(state, {}, { retries++ }) } }
-        compose.onNodeWithText("TMDb user rating: 8.2 / 10").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Verified US certifications: PG / PG-13").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Demo rating: 8.2 / 10").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Demo Data · US certification unverified").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Adventure").assertExists()
         compose.runOnIdle { state = MovieDetailsState(loading = false, denied = true) }
         compose.onNodeWithText("Movie 1").assertDoesNotExist()
-        compose.onNodeWithText("This movie is not available for eligible browsing.").assertIsDisplayed()
+        compose.onNodeWithText("This demo movie is unavailable.").assertIsDisplayed()
         compose.runOnIdle { state = MovieDetailsState(loading = false, error = true) }
         compose.onNodeWithText("Retry").performClick()
         compose.runOnIdle { assertEquals(1, retries) }

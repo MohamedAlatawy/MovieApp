@@ -23,17 +23,17 @@ import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil3.compose.SubcomposeAsyncImage
-import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.data.backend.DemoMovie
 import com.example.movieapp.data.paging.SearchPagingSource
 import com.example.movieapp.data.remote.TmdbException
 import com.example.movieapp.ui.home.posterUrl
 import kotlinx.coroutines.flow.Flow
 
 @Composable
-fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<PagingData<MovieEntity>>,
+fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<PagingData<DemoMovie>>,
     onMovieClick: (Int) -> Unit = {}) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Text("Find a movie", Modifier.padding(start = 16.dp, top = 16.dp),
+        Text("Find a movie · Demo Data", Modifier.padding(start = 16.dp, top = 16.dp),
             style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         OutlinedTextField(
             value = query, onValueChange = onQueryChange,
@@ -47,11 +47,11 @@ fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<P
         key(query.trim()) {
             val movies = results.collectAsLazyPagingItems()
             when {
-                query.isBlank() -> SearchMessage("Search by movie title", "Find your next verified movie pick.")
+                query.isBlank() -> SearchMessage("Search by movie title", "Browse demo movies from the backend.")
                 movies.itemCount == 0 -> when (val refresh = movies.loadState.refresh) {
                     is LoadState.Loading -> SearchLoading()
                     is LoadState.Error -> SearchError(refresh.error, movies::retry)
-                    is LoadState.NotLoading -> SearchMessage("No eligible results", "Try another movie title.")
+                    is LoadState.NotLoading -> SearchMessage("No results", "Try another movie title.")
                 }
                 else -> LazyVerticalGrid(
                     columns = GridCells.Adaptive(150.dp), modifier = Modifier.weight(1f),
@@ -78,7 +78,7 @@ fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<P
 }
 
 @Composable
-private fun SearchMovieCard(movie: MovieEntity, onMovieClick: (Int) -> Unit) {
+private fun SearchMovieCard(movie: DemoMovie, onMovieClick: (Int) -> Unit) {
     Column(Modifier.clickable { onMovieClick(movie.id) }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SubcomposeAsyncImage(
             model = posterUrl(movie.posterPath), contentDescription = "Poster for ${movie.title}",
@@ -116,7 +116,7 @@ private fun SearchLoading() {
     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CircularProgressIndicator(Modifier.size(28.dp))
-        Text("Finding verified movies…")
+        Text("Finding demo movies…")
     }
 }
 

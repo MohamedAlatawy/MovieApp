@@ -9,7 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.paging.compose.LazyPagingItems
-import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.data.backend.DemoMovie
 import com.example.movieapp.ui.search.SearchState
 import com.example.movieapp.ui.details.MovieDetailsState
 import com.example.movieapp.ui.details.MovieDetailsScreen
@@ -38,6 +38,10 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    override fun onStart() {
+        super.onStart()
+        com.example.movieapp.push.MovieUpdates.reconcile(this)
+    }
     private val viewModel: HomeViewModel by viewModels()
     private val searchViewModel: SearchViewModel by viewModels()
     private val detailsViewModel: MovieDetailsViewModel by viewModels()
@@ -61,7 +65,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 internal fun MovieAppContent(
-    homeMovies: LazyPagingItems<MovieEntity>,
+    homeMovies: LazyPagingItems<DemoMovie>,
     search: SearchState,
     details: MovieDetailsState,
     onQueryChange: (String) -> Unit,

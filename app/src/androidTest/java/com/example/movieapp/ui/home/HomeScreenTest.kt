@@ -11,7 +11,7 @@ import androidx.paging.PagingState
 import androidx.paging.RemoteMediator
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
-import com.example.movieapp.data.local.MovieDatabase
+import com.example.movieapp.data.backend.DemoDatabase as MovieDatabase
 import com.example.movieapp.data.paging.HomeRemoteMediator
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
@@ -21,7 +21,7 @@ import androidx.paging.LoadStates
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.LazyPagingItems
-import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.data.backend.DemoMovie
 import com.example.movieapp.data.remote.TmdbException
 import com.example.movieapp.ui.theme.MovieAppTheme
 import kotlinx.coroutines.flow.flowOf
@@ -34,14 +34,14 @@ class HomeScreenTest {
     private val idle = LoadState.NotLoading(true)
 
     @Test fun localRefreshDoesNotChangeNetworkFeedbackOrMoviePosition() {
-        val row = MovieEntity(1, "Cached movie", null, null, null, "2026", null)
+        val row = DemoMovie(1, "Cached movie", null, null, "2026", null)
         fun page(source: LoadState, remote: LoadState) = PagingData.from(
             listOf(row),
             sourceLoadStates = LoadStates(source, idle, idle),
             mediatorLoadStates = LoadStates(remote, idle, idle),
         )
         val flow = MutableStateFlow(page(idle, idle))
-        lateinit var movies: LazyPagingItems<MovieEntity>
+        lateinit var movies: LazyPagingItems<DemoMovie>
         compose.setContent {
             movies = flow.collectAsLazyPagingItems()
             MovieAppTheme { HomeScreen(movies) }
@@ -77,12 +77,12 @@ class HomeScreenTest {
         val retryStarted = CompletableDeferred<Unit>()
         val written = CompletableDeferred<Unit>()
         try {
-            val dao = database.movieDao()
-            val rows = (1..80).map { MovieEntity(it, "Movie %03d".format(it), null, null, null, "2026", null) }
-            rows.forEach { dao.saveVerified(it) }
+            val dao = database.movies()
+            val rows = (1..80).map { DemoMovie(it, "Movie %03d".format(it), null, null, "2026", null) }
+            rows.forEach { dao.save(listOf(it)) }
             var paused = false
-            val mediator = object : RemoteMediator<Int, MovieEntity>() {
-                override suspend fun load(loadType: LoadType, state: PagingState<Int, MovieEntity>): MediatorResult {
+            val mediator = object : RemoteMediator<Int, DemoMovie>() {
+                override suspend fun load(loadType: LoadType, state: PagingState<Int, DemoMovie>): MediatorResult {
                     if (loadType == LoadType.REFRESH) return MediatorResult.Success(false)
                     if (loadType == LoadType.PREPEND) return MediatorResult.Success(true)
                     if (!paused) {
@@ -91,8 +91,8 @@ class HomeScreenTest {
                     }
                     retryStarted.complete(Unit)
                     allowWrite.await()
-                    dao.saveVerified(rows.first())
-                    dao.saveVerified(MovieEntity(81, "New movie", null, null, null, "2026", null))
+                    dao.save(listOf(rows.first()))
+                    dao.save(listOf(DemoMovie(81, "New movie", null, null, "2026", null)))
                     written.complete(Unit)
                     finishLoad.await()
                     return MediatorResult.Success(true)
@@ -104,7 +104,7 @@ class HomeScreenTest {
                     generations.incrementAndGet()
                     dao.pagingSource()
                 }).flow
-            lateinit var movies: LazyPagingItems<MovieEntity>
+            lateinit var movies: LazyPagingItems<DemoMovie>
             compose.setContent {
                 movies = flow.collectAsLazyPagingItems()
                 MovieAppTheme { HomeScreen(movies) }
@@ -137,7 +137,7 @@ class HomeScreenTest {
         }
     }
 
-    private fun show(rows: List<MovieEntity> = emptyList(), refresh: LoadState = idle,
+    private fun show(rows: List<DemoMovie> = emptyList(), refresh: LoadState = idle,
                      append: LoadState = idle) {
         val flow = flowOf(PagingData.from(rows,
             sourceLoadStates = LoadStates(idle, idle, idle),
@@ -163,7 +163,7 @@ class HomeScreenTest {
     }
 
     @Test fun cachedMovieStaysVisibleWithAppendError() {
-        show(listOf(MovieEntity(1, "Cached movie", null, null, null, "2026-01-01", null)),
+        show(listOf(DemoMovie(1, "Cached movie", null, null, "2026-01-01", null)),
             append = LoadState.Error(TmdbException.Network()))
         compose.onNodeWithText("Cached movie").assertIsDisplayed()
         compose.onNodeWithText("2026").assertIsDisplayed()

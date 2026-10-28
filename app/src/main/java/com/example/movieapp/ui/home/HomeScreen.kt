@@ -21,13 +21,13 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import coil3.compose.SubcomposeAsyncImage
-import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.data.backend.DemoMovie
 import com.example.movieapp.data.paging.HomeRemoteMediator
 import com.example.movieapp.data.remote.TmdbException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(movies: LazyPagingItems<MovieEntity>, onMovieClick: (Int) -> Unit = {}) {
+fun HomeScreen(movies: LazyPagingItems<DemoMovie>, onMovieClick: (Int) -> Unit = {}) {
     val states = movies.loadState
     val refresh = states.mediator?.refresh ?: states.refresh
     val append = states.mediator?.append ?: states.append
@@ -75,7 +75,7 @@ fun HomeScreen(movies: LazyPagingItems<MovieEntity>, onMovieClick: (Int) -> Unit
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Your movie collection", style = MaterialTheme.typography.titleLarge)
-                        Text("Verified picks · Discovery order", style = MaterialTheme.typography.bodySmall,
+                        Text("Demo Data · Backend order", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Box(Modifier.fillMaxWidth().height(4.dp)) {
                             if (refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -106,7 +106,7 @@ fun HomeScreen(movies: LazyPagingItems<MovieEntity>, onMovieClick: (Int) -> Unit
 }
 
 @Composable
-private fun MovieCard(movie: MovieEntity?, onMovieClick: (Int) -> Unit) {
+private fun MovieCard(movie: DemoMovie?, onMovieClick: (Int) -> Unit) {
     Column(Modifier.clickable(enabled = movie != null) { movie?.let { onMovieClick(it.id) } },
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SubcomposeAsyncImage(
@@ -161,6 +161,8 @@ private fun HomeMessage(error: Throwable, retry: () -> Unit) {
     }
 }
 
-internal fun posterUrl(path: String?): String? =
-    path?.takeIf { it.matches(Regex("/[A-Za-z0-9_-]+\\.(jpg|jpeg|png|webp)")) }
-        ?.let { "https://image.tmdb.org/t/p/w500$it" }
+internal fun posterUrl(path: String?): String? = path?.takeIf {
+    runCatching { java.net.URI(it).let { uri ->
+        uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null
+    } }.getOrDefault(false)
+}

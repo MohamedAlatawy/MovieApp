@@ -1,10 +1,8 @@
 package com.example.movieapp.di
 
 import android.content.Context
-import com.example.movieapp.data.local.MovieDao
-import com.example.movieapp.data.local.MovieDatabase
-import com.example.movieapp.data.remote.TmdbClient
-import com.example.movieapp.data.repository.MovieRepository
+import com.example.movieapp.data.backend.*
+import com.example.movieapp.data.BuildConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -15,15 +13,8 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object MovieModule {
-    @Provides @Singleton
-    fun database(@ApplicationContext context: Context): MovieDatabase = MovieDatabase.create(context)
-
-    @Provides @Singleton
-    fun movieDao(database: MovieDatabase): MovieDao = database.movieDao()
-
-    @Provides @Singleton
-    fun tmdbClient(): TmdbClient = TmdbClient.create()
-
-    @Provides @Singleton
-    fun repository(client: TmdbClient, dao: MovieDao) = MovieRepository(client, dao)
+    @Provides @Singleton fun database(@ApplicationContext context: Context) = DemoDatabase.create(context)
+    @Provides @Singleton fun dao(database: DemoDatabase) = database.movies()
+    @Provides @Singleton fun api() = BackendApi.create(BuildConfig.BACKEND_BASE_URL)
+    @Provides @Singleton fun repository(api: BackendApi, dao: DemoMovieDao) = BackendRepository(api, dao)
 }
