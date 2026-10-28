@@ -77,19 +77,6 @@ class TmdbClientTest {
     }
 
     @Test
-    fun releaseEvidenceRetainsCountriesRecordsAndRawCertifications() = runBlocking {
-        respond("""{"id":42,"results":[{"iso_3166_1":"US","release_dates":[{"certification":"PG-13","release_date":"2025-04-01T00:00:00.000Z","type":3,"iso_639_1":"en","note":"Theatrical"},{"certification":"R","type":4},{"certification":""},{"certification":null},{}]},{"iso_3166_1":"GB","release_dates":[{"certification":"12A","type":3}]}]}""")
-        val result = client.movieReleaseDates(42)
-        assertEquals("/3/movie/42/release_dates", server.takeRequest(2, TimeUnit.SECONDS)!!.path)
-        assertEquals(42, result.id)
-        assertEquals(listOf("US", "GB"), result.results.map { it.countryCode })
-        val records = result.results.first().releaseDates
-        assertEquals(listOf("PG-13", "R", "", null, null), records.map { it.certification })
-        assertEquals(ReleaseDateDto("PG-13", "2025-04-01T00:00:00.000Z", 3, "en", "Theatrical"), records.first())
-        assertEquals("12A", result.results.last().releaseDates.single().certification)
-    }
-
-    @Test
     fun optionalMissingAndNullFieldsStayNull() = runBlocking {
         respond("""{"id":42,"title":"Example","poster_path":null,"genres":null,"adult":null}""")
         assertEquals(MovieDetailsDto(42, "Example"), client.movieDetails(42))

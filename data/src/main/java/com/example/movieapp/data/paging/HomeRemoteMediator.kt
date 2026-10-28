@@ -6,60 +6,58 @@ import androidx.paging.PagingState
 import androidx.paging.RemoteMediator
 import com.example.movieapp.data.local.MovieDao
 import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.data.remote.MoviePageDto
 import com.example.movieapp.data.remote.TmdbClient
 import com.example.movieapp.data.remote.TmdbException
-import com.example.movieapp.data.repository.MovieRepository
-import com.example.movieapp.domain.eligibility.MovieEligibilityPolicy.Decision
+import com.example.movieapp.data.repository.toCacheEntity
+import com.example.movieapp.data.repository.toMovieAccessException
+import com.example.movieapp.domain.model.MovieAccessException
+import kotlinx.coroutines.CancellationException
 
 @OptIn(ExperimentalPagingApi::class)
 class HomeRemoteMediator(
-    private val client: TmdbClient,
-    private val repository: MovieRepository,
+    private val discoverMovies: suspend (Int) -> MoviePageDto,
     private val dao: MovieDao,
+    private val invalidateEmptyPage: () -> Unit = {},
 ) : RemoteMediator<Int, MovieEntity>() {
+    constructor(client: TmdbClient, dao: MovieDao, invalidateEmptyPage: () -> Unit = {}) :
+        this(client::discoverMovies, dao, invalidateEmptyPage)
+
     private var nextPage = 1
     private var reachedEnd = false
-    private var refreshing = false
 
     override suspend fun load(
         loadType: LoadType,
         state: PagingState<Int, MovieEntity>,
     ): MediatorResult {
         if (loadType == LoadType.PREPEND) return MediatorResult.Success(true)
-        if (loadType == LoadType.REFRESH && !refreshing) {
+        if (loadType == LoadType.REFRESH) {
             nextPage = 1
             reachedEnd = false
-            refreshing = true
         }
         if (reachedEnd) return MediatorResult.Success(true)
-
+        val requestedPage = nextPage
         return try {
-            repeat(3) {
-                val page = client.discoverMovies(nextPage)
-                if (page.page != nextPage || page.totalPages < 0) throw TmdbException.InvalidResponse()
-                var addedMovie = false
-                var allowedMovie = false
-                for (candidate in page.results) {
-                    if (candidate.id <= 0) throw TmdbException.InvalidResponse()
-                    val existed = dao.findMovie(candidate.id) != null
-                    if (repository.refreshMovie(candidate.id) == Decision.Allow) {
-                        allowedMovie = true
-                        addedMovie = addedMovie || !existed
-                    }
-                }
-                nextPage++
-                reachedEnd = page.page >= minOf(page.totalPages, 500)
-                if (reachedEnd || addedMovie || (loadType == LoadType.REFRESH && allowedMovie)) {
-                    refreshing = false
-                    return MediatorResult.Success(reachedEnd)
-                }
-            }
-            // Pause empty-page scanning until the user requests another batch.
-            MediatorResult.Error(ContinueBrowsing())
-        } catch (error: TmdbException) {
+            val page = discoverMovies(requestedPage)
+            if (page.page != requestedPage || page.totalPages < 0 || page.totalResults < 0 ||
+                (page.totalPages == 0 && (requestedPage != 1 || page.totalResults != 0 || page.results.isNotEmpty())) ||
+                (page.totalPages > 0 && requestedPage > page.totalPages) ||
+                page.results.any { it.id <= 0 } || page.results.size > page.totalResults
+            ) throw TmdbException.InvalidResponse()
+            dao.saveDiscoverPage(page.results.distinctBy { it.id }.map { it.toCacheEntity() })
+            nextPage = requestedPage + 1
+            reachedEnd = requestedPage >= minOf(page.totalPages, 500)
+            // Empty nonterminal pages write no Room rows; invalidate after progress commits so Paging can request the next boundary.
+            if (page.results.isEmpty() && !reachedEnd) invalidateEmptyPage()
+            MediatorResult.Success(reachedEnd)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: MovieAccessException) {
             MediatorResult.Error(error)
+        } catch (error: TmdbException) {
+            MediatorResult.Error(error.toMovieAccessException())
+        } catch (_: android.database.SQLException) {
+            MediatorResult.Error(MovieAccessException.InvalidResponse())
         }
     }
-
-    class ContinueBrowsing : Exception("No new movies in this batch. Continue browsing.")
 }

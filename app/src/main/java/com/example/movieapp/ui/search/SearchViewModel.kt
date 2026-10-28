@@ -4,8 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.example.movieapp.data.local.MovieEntity
-import com.example.movieapp.data.repository.MovieRepository
+import com.example.movieapp.domain.model.MovieSummary
+import com.example.movieapp.domain.usecase.SearchMoviesUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -21,14 +21,14 @@ import kotlinx.coroutines.flow.flowOf
 
 data class SearchState(
     val query: String = "",
-    val movies: Flow<PagingData<MovieEntity>> = flowOf(PagingData.empty()),
+    val movies: Flow<PagingData<MovieSummary>> = flowOf(PagingData.empty()),
 )
 
 @HiltViewModel
 class SearchViewModel internal constructor(
-    private val searchMovies: (String) -> Flow<PagingData<MovieEntity>>,
+    private val searchMovies: (String) -> Flow<PagingData<MovieSummary>>,
 ) : ViewModel() {
-    @Inject constructor(repository: MovieRepository) : this(repository::searchMovies)
+    @Inject constructor(searchMovies: SearchMoviesUseCase) : this(searchMovies::invoke)
 
     private val mutableState = MutableStateFlow(SearchState())
     val state = mutableState.asStateFlow()
@@ -43,7 +43,7 @@ class SearchViewModel internal constructor(
         queryJob?.cancel()
         val job = SupervisorJob(viewModelScope.coroutineContext[Job])
         queryJob = job
-        val movies = if (term.isEmpty()) flowOf(PagingData.empty<MovieEntity>()) else flow {
+        val movies = if (term.isEmpty()) flowOf(PagingData.empty<MovieSummary>()) else flow {
             delay(400)
             emitAll(searchMovies(term))
         }.cachedIn(CoroutineScope(viewModelScope.coroutineContext + job))

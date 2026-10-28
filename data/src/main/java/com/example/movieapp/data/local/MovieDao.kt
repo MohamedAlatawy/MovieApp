@@ -25,15 +25,41 @@ interface MovieDao {
     suspend fun nextDiscoveryOrder(): Long
 
     @Transaction
-    suspend fun saveVerified(movie: MovieEntity) {
-        val order = findMovie(movie.id)?.discoveryOrder ?: nextDiscoveryOrder()
-        upsert(movie.copy(discoveryOrder = order))
+    suspend fun saveDiscoverPage(movies: List<MovieEntity>) {
+        movies.distinctBy { it.id }.forEach { saveCachedMovie(it) }
     }
 
-    /** Only the verifying repository should call this in production. */
+    @Transaction
+    suspend fun saveCachedMovie(movie: MovieEntity) {
+        val current = findMovie(movie.id)
+        upsert(movie.mergeWith(current).copy(
+            discoveryOrder = current?.discoveryOrder ?: nextDiscoveryOrder(),
+            genres = current?.genres ?: movie.genres,
+        ))
+    }
+
+    @Transaction
+    suspend fun updateCachedDetails(movie: MovieEntity, genresProvided: Boolean) {
+        val current = findMovie(movie.id) ?: return
+        upsert(movie.mergeWith(current).copy(
+            genres = if (genresProvided) movie.genres else current.genres,
+        ))
+    }
+
     @Upsert
     suspend fun upsert(movie: MovieEntity)
 
     @Query("DELETE FROM movies WHERE id = :id")
     suspend fun delete(id: Int)
 }
+
+private fun MovieEntity.mergeWith(current: MovieEntity?) = copy(
+    title = title.takeIf { it.isNotBlank() } ?: current?.title.orEmpty(),
+    overview = overview?.takeIf { it.isNotBlank() } ?: current?.overview,
+    posterPath = posterPath?.takeIf { it.isNotBlank() } ?: current?.posterPath,
+    backdropPath = backdropPath?.takeIf { it.isNotBlank() } ?: current?.backdropPath,
+    releaseDate = releaseDate?.takeIf { it.isNotBlank() } ?: current?.releaseDate,
+    voteAverage = voteAverage?.takeIf { it.isFinite() && it in 0.0..10.0 } ?: current?.voteAverage,
+    discoveryOrder = current?.discoveryOrder ?: discoveryOrder,
+    usCertifications = current?.usCertifications ?: usCertifications,
+)

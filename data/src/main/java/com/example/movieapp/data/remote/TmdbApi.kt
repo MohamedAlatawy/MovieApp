@@ -15,6 +15,4 @@ internal interface TmdbApi {
     @GET("movie/{movie_id}")
     suspend fun movieDetails(@Path("movie_id") movieId: Int): Response<MovieDetailsDto>
 
-    @GET("movie/{movie_id}/release_dates")
-    suspend fun movieReleaseDates(@Path("movie_id") movieId: Int): Response<MovieReleaseDatesDto>
 }

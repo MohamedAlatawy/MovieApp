@@ -2,10 +2,11 @@ package com.example.movieapp.ui.details
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.movieapp.data.local.MovieEntity
-import com.example.movieapp.data.remote.TmdbException
-import com.example.movieapp.data.repository.MovieRepository
-import com.example.movieapp.domain.eligibility.MovieEligibilityPolicy.Decision
+import com.example.movieapp.domain.model.CachedMovie
+import com.example.movieapp.domain.model.MovieAccessException
+import com.example.movieapp.domain.usecase.ObserveCachedMovieUseCase
+import com.example.movieapp.domain.usecase.GetSearchMovieDetailsUseCase
+import com.example.movieapp.domain.usecase.RefreshHomeMovieDetailsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -16,18 +17,23 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class MovieDetailsState(
-    val movie: MovieEntity? = null,
+    val movie: MovieDetailsContent? = null,
     val loading: Boolean = true,
-    val denied: Boolean = false,
     val error: Boolean = false,
+    val origin: MovieOrigin = MovieOrigin.HOME,
 )
 
 @HiltViewModel
 class MovieDetailsViewModel internal constructor(
-    private val observeMovie: (Int) -> Flow<MovieEntity?>,
-    private val refreshMovie: suspend (Int) -> Decision,
+    private val observeCachedMovie: (Int) -> Flow<CachedMovie?>,
+    private val fetchSearchDetails: suspend (Int) -> com.example.movieapp.domain.model.MovieDetails,
+    private val refreshHomeMovieDetails: suspend (Int) -> Unit,
 ) : ViewModel() {
-    @Inject constructor(repository: MovieRepository) : this(repository::observeMovie, repository::refreshMovie)
+    @Inject constructor(
+        observeCachedMovie: ObserveCachedMovieUseCase,
+        fetchSearchDetails: GetSearchMovieDetailsUseCase,
+        refreshHomeMovieDetails: RefreshHomeMovieDetailsUseCase,
+    ) : this(observeCachedMovie::invoke, fetchSearchDetails::invoke, refreshHomeMovieDetails::invoke)
 
     private val mutableState = MutableStateFlow(MovieDetailsState())
     val state = mutableState.asStateFlow()
@@ -35,20 +41,20 @@ class MovieDetailsViewModel internal constructor(
     private var observation: Job? = null
     private var refresh: Job? = null
 
-    fun open(id: Int) {
-        if (movieId == id) return
+    fun open(id: Int, origin: MovieOrigin = MovieOrigin.HOME) {
+        if (movieId == id && state.value.origin == origin) return
         close()
         movieId = id
-        mutableState.value = MovieDetailsState()
+        mutableState.value = MovieDetailsState(origin = origin)
         if (id <= 0) {
-            mutableState.value = MovieDetailsState(loading = false, denied = true)
+            mutableState.value = MovieDetailsState(loading = false, error = true, origin = origin)
             return
         }
-        observation = viewModelScope.launch {
-            observeMovie(id).collect { movie ->
-                mutableState.update { it.copy(movie = movie) }
+        observation = if (origin == MovieOrigin.HOME) viewModelScope.launch {
+            observeCachedMovie(id).collect { movie ->
+                mutableState.update { it.copy(movie = movie?.toDetailsContent()) }
             }
-        }
+        } else null
         retry()
     }
 
@@ -58,11 +64,14 @@ class MovieDetailsViewModel internal constructor(
         refresh = viewModelScope.launch {
             mutableState.update { it.copy(loading = true, error = false) }
             try {
-                val denied = refreshMovie(id) == Decision.Deny
-                mutableState.update {
-                    it.copy(loading = false, denied = denied, movie = if (denied) null else it.movie)
+                if (state.value.origin == MovieOrigin.SEARCH) {
+                    val movie = fetchSearchDetails(id).toDetailsContent()
+                    mutableState.update { it.copy(movie = movie, loading = false, error = false) }
+                    return@launch
                 }
-            } catch (_: TmdbException) {
+                refreshHomeMovieDetails(id)
+                mutableState.update { it.copy(loading = false) }
+            } catch (_: MovieAccessException) {
                 mutableState.update { it.copy(loading = false, error = true) }
             }
         }

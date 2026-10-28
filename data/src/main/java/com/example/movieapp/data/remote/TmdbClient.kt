@@ -13,7 +13,7 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/** Small remote entry point. Returned movies and certification records are untrusted data. */
+/** Small remote entry point. Handles transport responses and failures. */
 class TmdbClient private constructor(
     private val api: TmdbApi,
     private val tokenConfigured: Boolean,
@@ -25,8 +25,6 @@ class TmdbClient private constructor(
 
     suspend fun movieDetails(movieId: Int): MovieDetailsDto = request { api.movieDetails(movieId) }
 
-    suspend fun movieReleaseDates(movieId: Int): MovieReleaseDatesDto =
-        request { api.movieReleaseDates(movieId) }
 
     private suspend fun <T> request(call: suspend () -> Response<T>): T {
         if (!tokenConfigured) throw TmdbException.MissingToken()
