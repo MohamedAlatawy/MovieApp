@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 
-/** Displayable cache row. Production writes must go through MovieRepository verification. */
+/** Home cache row; the legacy certification column is retained for schema compatibility. */
 @Entity(tableName = "movies")
 data class MovieEntity(
     @PrimaryKey val id: Int,

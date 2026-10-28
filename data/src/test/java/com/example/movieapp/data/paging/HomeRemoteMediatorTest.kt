@@ -1,10 +1,10 @@
 package com.example.movieapp.data.paging
 
+import com.example.movieapp.domain.model.MovieAccessException
 import androidx.paging.*
 import com.example.movieapp.data.local.MovieDao
 import com.example.movieapp.data.local.MovieEntity
 import com.example.movieapp.data.remote.TmdbClient
-import com.example.movieapp.data.repository.MovieRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
@@ -25,125 +25,125 @@ class HomeRemoteMediatorTest {
     @Before fun setUp() {
         server.start()
         val client = TmdbClient.create("synthetic-token", server.url("/3/"))
-        mediator = HomeRemoteMediator(client, MovieRepository(client, dao), dao)
+        mediator = HomeRemoteMediator(client, dao)
     }
     @After fun tearDown() { server.shutdown() }
 
-    @Test fun discoverOrderSurvivesAppendDuplicatesAndRefresh() = runBlocking {
-        page(1, 2, 30, 10, 20)
-        evidence(30, "PG", "Zulu")
-        evidence(10, "R", "Denied")
-        evidence(20, "G", "Middle")
-        load(LoadType.REFRESH)
-        assertEquals(listOf(30, 20), dao.rows.value.map { it.id })
-        page(2, 2, 20, 5, 40)
-        evidence(20, "PG", "Renamed")
-        evidence(5, "PG", "Alpha")
-        evidence(40, "G", "Beta")
-        load(LoadType.APPEND)
-        assertEquals(listOf(30, 20, 5, 40), dao.rows.value.map { it.id })
-        assertEquals(listOf(0L, 1L, 2L, 3L), dao.rows.value.map { it.discoveryOrder })
-        page(1, 1, 40, 30, 50)
-        evidence(40, "G")
-        evidence(30, "PG")
-        evidence(50, "G", "A new discovery")
-        load(LoadType.REFRESH)
-        assertEquals(listOf(30, 20, 5, 40, 50), dao.rows.value.map { it.id })
-        assertNull(dao.findMovie(10))
-    }
-
-    @Test fun skipsRestrictedPageThenAppendsRawPageAndRevokesRestrictedCache() = runBlocking {
-        dao.upsert(movie(1))
-        page(1, 3, 1)
-        evidence(1, "R")
-        page(2, 3, 2)
-        evidence(2, "PG")
-        assertEquals(false, success(load(LoadType.REFRESH)).endOfPaginationReached)
-        assertNull(dao.findMovie(1))
-        assertNotNull(dao.findMovie(2))
-        page(3, 3, 3)
-        evidence(3, "G")
+    @Test fun oneRequestPerPagePreservesOrderAndDoesNotAuditCandidates() = runBlocking {
+        page(1, 3, 30, 10, 30, 20)
+        assertFalse(success(load(LoadType.REFRESH)).endOfPaginationReached)
+        assertEquals(listOf(30, 10, 20), dao.rows.value.map { it.id })
+        assertEquals(1, server.requestCount)
+        page(2, 3, 20)
+        assertFalse(success(load(LoadType.APPEND)).endOfPaginationReached)
+        assertEquals(2, server.requestCount)
+        page(3, 3, 5)
         assertTrue(success(load(LoadType.APPEND)).endOfPaginationReached)
+        assertEquals(listOf(30, 10, 20, 5), dao.rows.value.map { it.id })
+        assertEquals(listOf(0L, 1L, 2L, 3L), dao.rows.value.map { it.discoveryOrder })
         assertEquals(listOf(1, 2, 3), requestedPages())
-        assertEquals(listOf(2, 3), dao.rows.value.map { it.id })
+        page(1, 1, 5, 30, 50)
+        load(LoadType.REFRESH)
+        assertEquals(listOf(30, 10, 20, 5, 50), dao.rows.value.map { it.id })
     }
 
-    @Test fun failedAppendPreservesCacheAndRetriesSamePageWithoutDuplicates() = runBlocking {
+    @Test fun emptyAndShortPagesAdvanceOnlyByMetadata() = runBlocking {
+        page(1, 4)
+        assertFalse(success(load(LoadType.REFRESH)).endOfPaginationReached)
+        page(2, 4)
+        assertFalse(success(load(LoadType.APPEND)).endOfPaginationReached)
+        page(3, 4, 3)
+        assertFalse(success(load(LoadType.APPEND)).endOfPaginationReached)
+        page(4, 4)
+        assertTrue(success(load(LoadType.APPEND)).endOfPaginationReached)
+        assertEquals(listOf(1, 2, 3, 4), requestedPages())
+    }
+
+    @Test fun failedAppendAndRefreshRetryTheSameRawPage() = runBlocking {
         page(1, 2, 1)
-        evidence(1, "PG-13")
         load(LoadType.REFRESH)
-        page(2, 2, 2)
-        json("""{"id":2,"title":"Movie 2","adult":false}""")
         server.enqueue(MockResponse().setResponseCode(503))
         assertTrue(load(LoadType.APPEND) is RemoteMediator.MediatorResult.Error)
         assertEquals(listOf(1), dao.rows.value.map { it.id })
         page(2, 2, 2)
-        evidence(2, "G")
-        assertTrue(success(load(LoadType.APPEND)).endOfPaginationReached)
-        assertEquals(listOf(1, 2, 2), requestedPages())
-        assertEquals(2, dao.rows.value.size)
-    }
-
-    @Test fun failedRefreshResumesFailedPageAndSuccessfulNewRefreshStartsAtOne() = runBlocking {
-        page(1, 2, 1)
-        evidence(1, "R")
+        load(LoadType.APPEND)
         server.enqueue(MockResponse().setResponseCode(503))
         assertTrue(load(LoadType.REFRESH) is RemoteMediator.MediatorResult.Error)
-        page(2, 2, 2)
-        evidence(2, "PG")
+        page(1, 1, 3)
         load(LoadType.REFRESH)
-        page(1, 1, 2)
-        evidence(2, "PG")
-        load(LoadType.REFRESH)
-        assertEquals(listOf(1, 2, 2, 1), requestedPages())
-        assertEquals(1, dao.rows.value.size)
+        assertEquals(listOf(1, 2, 2, 1, 1), requestedPages())
+        assertEquals(listOf(1, 2, 3), dao.rows.value.map { it.id })
     }
 
-    @Test fun emptyBatchPausesWithoutExhaustionAndContinuesAtNextRawPage() = runBlocking {
-        for (page in 1..3) page(page, 4)
-        val result = load(LoadType.REFRESH) as RemoteMediator.MediatorResult.Error
-        assertTrue(result.throwable is HomeRemoteMediator.ContinueBrowsing)
-        assertEquals(3, server.requestCount)
-        page(4, 4, 4)
-        evidence(4, "PG")
-        assertTrue(success(load(LoadType.REFRESH)).endOfPaginationReached)
-        assertEquals(listOf(1, 2, 3, 4), requestedPages())
-    }
-
-    @Test fun duplicateOnlyAppendAdvancesAndMissingTokenPreservesCache() = runBlocking {
-        page(1, 3, 1)
-        evidence(1, "G")
+    @Test fun validatesWholePageBeforeWritesAndDoesNotAdvanceOnPersistenceFailure() = runBlocking {
+        page(1, 2, 1, 0)
+        assertTrue(load(LoadType.REFRESH) is RemoteMediator.MediatorResult.Error)
+        assertTrue(dao.rows.value.isEmpty())
+        page(1, 2, 1)
+        dao.failSave = true
+        assertTrue(load(LoadType.REFRESH) is RemoteMediator.MediatorResult.Error)
+        dao.failSave = false
+        page(1, 2, 1)
         load(LoadType.REFRESH)
-        page(2, 3, 1)
-        evidence(1, "G")
-        page(3, 3, 2)
-        evidence(2, "G")
-        load(LoadType.APPEND)
-        assertEquals(2, dao.rows.value.size)
-        val client = TmdbClient.create("", server.url("/3/"))
-        val missing = HomeRemoteMediator(client, MovieRepository(client, dao), dao)
-        val count = server.requestCount
-        assertTrue(missing.load(LoadType.REFRESH, state) is RemoteMediator.MediatorResult.Error)
-        assertEquals(count, server.requestCount)
-        assertEquals(2, dao.rows.value.size)
+        assertEquals(listOf(1, 1, 1), requestedPages())
     }
 
-    @Test fun prependDoesNotRequestNetworkAndEmptyRemoteEnds() = runBlocking {
+    @Test fun rejectsInvalidPageMetadataAndPreservesCache() = runBlocking {
+        dao.upsert(movie(7))
+        for (body in listOf(
+            """{"page":2,"total_pages":2,"total_results":2,"results":[]}""",
+            """{"page":1,"total_pages":-1,"total_results":0,"results":[]}""",
+            """{"page":1,"total_pages":0,"total_results":2,"results":[]}""",
+            """{"page":1,"total_pages":1,"total_results":-1,"results":[]}"""
+        )) {
+            json(body)
+            assertTrue(load(LoadType.REFRESH) is RemoteMediator.MediatorResult.Error)
+            assertNotNull(dao.findMovie(7))
+        }
+    }
+
+    @Test fun prependAndTerminalEmptyDoNotRequestMore() = runBlocking {
         assertTrue(success(load(LoadType.PREPEND)).endOfPaginationReached)
         assertEquals(0, server.requestCount)
         page(1, 0)
         assertTrue(success(load(LoadType.REFRESH)).endOfPaginationReached)
+        assertTrue(success(load(LoadType.APPEND)).endOfPaginationReached)
+        assertEquals(1, server.requestCount)
     }
 
+    @Test fun appendPersistenceFailureRetriesWithoutAdvancingAndCapStopsAt500() = runBlocking {
+        page(1, 2, 1)
+        load(LoadType.REFRESH)
+        page(2, 2, 2)
+        dao.failSave = true
+        assertTrue(load(LoadType.APPEND) is RemoteMediator.MediatorResult.Error)
+        dao.failSave = false
+        page(2, 2, 2)
+        assertTrue(success(load(LoadType.APPEND)).endOfPaginationReached)
+        assertEquals(listOf(1, 2, 2), requestedPages())
+        var requests = 0
+        val capped = HomeRemoteMediator({ page ->
+            requests++
+            com.example.movieapp.data.remote.MoviePageDto(page, 900, 900, emptyList())
+        }, dao)
+        assertFalse(success(capped.load(LoadType.REFRESH, state)).endOfPaginationReached)
+        repeat(498) { assertFalse(success(capped.load(LoadType.APPEND, state)).endOfPaginationReached) }
+        assertTrue(success(capped.load(LoadType.APPEND, state)).endOfPaginationReached)
+        assertTrue(success(capped.load(LoadType.APPEND, state)).endOfPaginationReached)
+        assertEquals(500, requests)
+    }
+
+    @Test fun cancellationPropagates() = runBlocking {
+        val cancelled = kotlinx.coroutines.CancellationException("cancelled")
+        val subject = HomeRemoteMediator({ throw cancelled }, dao)
+        assertSame(cancelled, runCatching { subject.load(LoadType.REFRESH, state) }.exceptionOrNull())
+    }
     private suspend fun load(type: LoadType) = mediator.load(type, state)
     private fun success(result: RemoteMediator.MediatorResult) = result as RemoteMediator.MediatorResult.Success
     private fun page(page: Int, total: Int, vararg ids: Int) {
+        val count = if (total == 0) 0 else maxOf(total, ids.size)
         val results = ids.joinToString(",") { """{"id":$it,"title":"Movie $it"}""" }
-        json("""{"page":$page,"total_pages":$total,"total_results":$total,"results":[$results]}""")
-    }
-    private fun evidence(id: Int, rating: String, title: String = "Movie $id") {
-        json("""{"id":$id,"title":"$title","adult":false}""")
-        json("""{"id":$id,"results":[{"iso_3166_1":"US","release_dates":[{"certification":"$rating"}]}]}""")
+        json("""{"page":$page,"total_pages":$total,"total_results":${count},"results":[$results]}""")
     }
     private fun json(body: String) {
         server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody(body))
@@ -155,6 +155,11 @@ class HomeRemoteMediatorTest {
     private fun movie(id: Int) = MovieEntity(id, "Movie $id", null, null, null, null, null)
 
     private class FakeDao : MovieDao {
+        var failSave = false
+        override suspend fun saveDiscoverPage(movies: List<MovieEntity>) {
+            if (failSave) throw MovieAccessException.InvalidResponse()
+            super.saveDiscoverPage(movies)
+        }
         val rows = MutableStateFlow<List<MovieEntity>>(emptyList())
         override fun pagingSource(): PagingSource<Int, MovieEntity> = error("Room tested on device")
         override fun observeMovies() = rows

@@ -1,76 +1,55 @@
 package com.example.movieapp.data.repository
 
+import androidx.paging.PagingData
+import kotlinx.coroutines.flow.Flow
+import com.example.movieapp.domain.model.CachedMovie
+import androidx.paging.InvalidatingPagingSourceFactory
 import androidx.paging.ExperimentalPagingApi
+import androidx.paging.map
+import kotlinx.coroutines.flow.map
+import com.example.movieapp.domain.model.MovieAccessException
+import com.example.movieapp.domain.model.MovieDetails
+import com.example.movieapp.domain.repository.MovieRepository as MovieRepositoryContract
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import com.example.movieapp.data.paging.HomeRemoteMediator
 import com.example.movieapp.data.paging.SearchPagingSource
 
 import com.example.movieapp.data.local.MovieDao
-import com.example.movieapp.data.local.MovieEntity
-import com.example.movieapp.data.remote.MovieReleaseDatesDto
 import com.example.movieapp.data.remote.TmdbClient
-import com.example.movieapp.data.remote.TmdbException
-import com.example.movieapp.domain.eligibility.MovieCertificationEvidence
-import com.example.movieapp.domain.eligibility.MovieEligibilityPolicy
-import com.example.movieapp.domain.eligibility.ReleaseCertification
 
 class MovieRepository(
     private val client: TmdbClient,
     private val dao: MovieDao,
-) {
+) : MovieRepositoryContract {
     @OptIn(ExperimentalPagingApi::class)
-    fun homeMovies() = Pager(
-        config = PagingConfig(pageSize = 20, enablePlaceholders = true),
-        remoteMediator = HomeRemoteMediator(client, this, dao),
-        pagingSourceFactory = dao::pagingSource,
-    ).flow
+    override fun homeMovies(): Flow<PagingData<CachedMovie>> {
+        val sources = InvalidatingPagingSourceFactory(dao::pagingSource)
+        return Pager(
+            config = PagingConfig(pageSize = 20, enablePlaceholders = true),
+            remoteMediator = HomeRemoteMediator(client, dao, sources::invalidate),
+            pagingSourceFactory = sources,
+        ).flow.map { paging -> paging.map { it.toCachedMovie() } }
+    }
 
-    fun observeMovies() = dao.observeMovies()
-
-    fun searchMovies(query: String) = Pager(
+    override fun searchMovies(query: String) = Pager(
         config = PagingConfig(pageSize = 20, initialLoadSize = 20, enablePlaceholders = false),
-        pagingSourceFactory = { SearchPagingSource(query.trim(), client, this, dao) },
-    ).flow
-    fun observeMovie(id: Int) = dao.observeMovie(id)
+        pagingSourceFactory = { SearchPagingSource(query.trim(), client) },
+    ).flow.map { paging -> paging.map { it.toMovieSummary() } }
+    override fun observeCachedMovie(id: Int) = dao.observeMovie(id).map { it?.toCachedMovie() }
 
-    /** Denied eligibility revokes cached content; request failures preserve it. */
-    suspend fun refreshMovie(id: Int): MovieEligibilityPolicy.Decision {
-        require(id > 0) { "Movie ID must be positive." }
+    override suspend fun fetchSearchDetails(movieId: Int): MovieDetails = movieAccess {
+        if (movieId <= 0) throw MovieAccessException.InvalidIdentity()
+        client.movieDetails(movieId).also {
+            if (it.id != movieId) throw MovieAccessException.InvalidIdentity()
+        }.toMovieDetails()
+    }
+
+    override suspend fun refreshHomeMovieDetails(id: Int): Unit = movieAccess {
+        if (id <= 0) throw MovieAccessException.InvalidIdentity()
+        if (dao.findMovie(id) == null) throw MovieAccessException.InvalidIdentity()
         val details = client.movieDetails(id)
-        val releases = client.movieReleaseDates(id)
-        if (details.id != id || releases.id != id) throw TmdbException.InvalidResponse()
-        val decision = MovieEligibilityPolicy.evaluate(id, details.adult, releases.toEvidence())
-        if (decision == MovieEligibilityPolicy.Decision.Allow) {
-            dao.saveVerified(MovieEntity(
-                id = details.id,
-                title = details.title,
-                overview = details.overview,
-                posterPath = details.posterPath,
-                backdropPath = details.backdropPath,
-                releaseDate = details.releaseDate,
-                voteAverage = details.voteAverage,
-                genres = details.genres?.map { it.name.trim() }?.filter { it.isNotEmpty() }
-                    ?.distinct()?.joinToString(" · ")?.takeIf { it.isNotEmpty() },
-                usCertifications = releases.results.filter { it.countryCode.asciiUppercase() == "US" }
-                    .flatMap { it.releaseDates }.mapNotNull { it.certification?.trim() }
-                    .filter { it.isNotEmpty() }.map { it.asciiUppercase() }
-                    .distinct().sorted().joinToString(" / "),
-            ))
-        } else {
-            dao.delete(id)
-        }
-        return decision
+        if (details.id != id) throw MovieAccessException.InvalidIdentity()
+        dao.updateCachedDetails(details.toCacheEntity(), genresProvided = details.genres != null)
     }
 }
-
-private fun MovieReleaseDatesDto.toEvidence() = MovieCertificationEvidence(
-    movieId = id,
-    records = results.flatMap { country ->
-        country.releaseDates.map { ReleaseCertification(country.countryCode, it.certification) }
-    },
-)
-
-private fun String.asciiUppercase() = trim().map {
-    if (it in 'a'..'z') it.uppercaseChar() else it
-}.joinToString("")

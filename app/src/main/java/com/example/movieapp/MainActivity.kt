@@ -9,8 +9,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.paging.compose.LazyPagingItems
-import com.example.movieapp.data.local.MovieEntity
+import com.example.movieapp.domain.model.CachedMovie
 import com.example.movieapp.ui.search.SearchState
+import com.example.movieapp.ui.details.MovieOrigin
 import com.example.movieapp.ui.details.MovieDetailsState
 import com.example.movieapp.ui.details.MovieDetailsScreen
 import com.example.movieapp.ui.details.MovieDetailsViewModel
@@ -61,19 +62,20 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 internal fun MovieAppContent(
-    homeMovies: LazyPagingItems<MovieEntity>,
+    homeMovies: LazyPagingItems<CachedMovie>,
     search: SearchState,
     details: MovieDetailsState,
     onQueryChange: (String) -> Unit,
-    onOpenDetails: (Int) -> Unit,
+    onOpenDetails: (Int, MovieOrigin) -> Unit,
     onCloseDetails: () -> Unit,
     onRetryDetails: () -> Unit,
 ) {
     var searchSelected by rememberSaveable { mutableStateOf(false) }
     var selectedMovieId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var selectedOrigin by rememberSaveable { mutableStateOf(MovieOrigin.HOME) }
     val closeDetails: () -> Unit = { selectedMovieId = null; onCloseDetails() }
     BackHandler(enabled = selectedMovieId != null, onBack = closeDetails)
-    LaunchedEffect(selectedMovieId) { selectedMovieId?.let(onOpenDetails) }
+    LaunchedEffect(selectedMovieId, selectedOrigin) { selectedMovieId?.let { onOpenDetails(it, selectedOrigin) } }
     val screens = rememberSaveableStateHolder()
     val selectedId = selectedMovieId
     if (selectedId != null) {
@@ -91,10 +93,10 @@ internal fun MovieAppContent(
                 screens.SaveableStateProvider(searchSelected) {
                     if (searchSelected) {
                         SearchScreen(search.query, onQueryChange, search.movies,
-                            onMovieClick = { id -> if (selectedMovieId == null) { selectedMovieId = id } })
+                            onMovieClick = { id -> if (selectedMovieId == null) { selectedOrigin = MovieOrigin.SEARCH; selectedMovieId = id } })
                     } else {
                         HomeScreen(homeMovies,
-                            onMovieClick = { id -> if (selectedMovieId == null) { selectedMovieId = id } })
+                            onMovieClick = { id -> if (selectedMovieId == null) { selectedOrigin = MovieOrigin.HOME; selectedMovieId = id } })
                     }
                 }
             }

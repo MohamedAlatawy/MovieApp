@@ -34,9 +34,9 @@ class MovieDatabaseTest {
     @After fun tearDown() { database.close() }
 
     @Test fun pagingSourceKeepsVerifiedInsertionOrderAcrossUpdates() = runBlocking {
-        dao.saveVerified(movie().copy(id = 2, title = "Zulu"))
-        dao.saveVerified(movie().copy(id = 1, title = "Alpha"))
-        dao.saveVerified(movie().copy(id = 2, title = "Updated"))
+        dao.saveCachedMovie(movie().copy(id = 2, title = "Zulu"))
+        dao.saveCachedMovie(movie().copy(id = 1, title = "Alpha"))
+        dao.saveCachedMovie(movie().copy(id = 2, title = "Updated"))
         val source = dao.pagingSource()
         val result = source.load(PagingSource.LoadParams.Refresh<Int>(null, 20, false))
             as PagingSource.LoadResult.Page
@@ -65,8 +65,8 @@ class MovieDatabaseTest {
                     assertEquals(listOf(1, 3, 9), rows.map { it.id })
                     assertEquals(listOf(0L, 1L, 2L), rows.map { it.discoveryOrder })
                     assertEquals(MovieEntity(9, "Zulu", "Keep me", "/poster.jpg", null, "2025-01-01", 7.5, 2), rows.last())
-                    migratedDao.saveVerified(movie().copy(id = 10, title = "A new movie"))
-                    migratedDao.saveVerified(rows.last().copy(title = "Renamed"))
+                    migratedDao.saveCachedMovie(movie().copy(id = 10, title = "A new movie"))
+                    migratedDao.saveCachedMovie(rows.last().copy(title = "Renamed"))
                     assertEquals(listOf(1, 3, 9, 10), migratedDao.observeMovies().first().map { it.id })
             } finally {
                 migrated.close()
@@ -95,7 +95,7 @@ class MovieDatabaseTest {
                 assertEquals(17L, row.discoveryOrder)
                 assertNull(row.genres)
                 assertNull(row.usCertifications)
-                migrated.movieDao().saveVerified(row.copy(genres = "Adventure", usCertifications = "PG"))
+                migrated.movieDao().saveCachedMovie(row.copy(genres = "Adventure", usCertifications = "PG"))
                 assertEquals(17L, migrated.movieDao().findMovie(9)!!.discoveryOrder)
                 assertEquals("PG", migrated.movieDao().findMovie(9)!!.usCertifications)
             } finally { migrated.close() }
@@ -138,5 +138,47 @@ class MovieDatabaseTest {
         }
     }
 
+    @Test fun pageMergePreservesEnrichmentLegacyColumnsAndStableOrder() = runBlocking {
+        val old = movie().copy(discoveryOrder = 12, genres = "Drama", usCertifications = "PG")
+        dao.upsert(old)
+        dao.saveDiscoverPage(listOf(
+            old.copy(title = "Fresh", overview = "", voteAverage = Double.NaN, genres = null, usCertifications = null),
+            movie().copy(id = 7), movie().copy(id = 7, title = "Duplicate"), movie().copy(id = 8),
+        ))
+        assertEquals(old.copy(title = "Fresh"), dao.findMovie(42))
+        assertEquals(listOf(42, 7, 8), dao.observeMovies().first().map { it.id })
+        assertEquals(listOf(12L, 13L, 14L), dao.observeMovies().first().map { it.discoveryOrder })
+        dao.saveDiscoverPage(listOf(movie().copy(id = 7)))
+        assertEquals(13L, dao.findMovie(7)!!.discoveryOrder)
+    }
+
+    @Test fun completePageRollsBackWhenLaterWriteFails() = runBlocking {
+        dao.upsert(movie())
+        database.openHelper.writableDatabase.execSQL(
+            "CREATE TEMP TRIGGER reject_test_movie BEFORE INSERT ON movies WHEN NEW.id = 9 BEGIN SELECT RAISE(ABORT, 'test rollback'); END",
+        )
+        val failure = runCatching {
+            com.example.movieapp.data.repository.movieAccess {
+                dao.saveDiscoverPage(listOf(movie().copy(title = "Must roll back"), movie().copy(id = 8), movie().copy(id = 9)))
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is com.example.movieapp.domain.model.MovieAccessException.InvalidResponse)
+        assertEquals(listOf(movie()), dao.observeMovies().first())
+    }
+
+    @Test fun detailsUpdateUsesExistingRowAndDistinguishesOmittedAndEmptyGenres() = runBlocking {
+        dao.updateCachedDetails(movie(), genresProvided = true)
+        assertNull(dao.findMovie(42))
+        val old = movie().copy(discoveryOrder = 23, genres = "Drama", usCertifications = "PG")
+        dao.upsert(old)
+        val response = MovieEntity(42, "Updated", null, null, null, null, null)
+        dao.updateCachedDetails(response, genresProvided = false)
+        assertEquals(old.copy(title = "Updated"), dao.findMovie(42))
+        dao.updateCachedDetails(response, genresProvided = true)
+        assertEquals(old.copy(title = "Updated", genres = null), dao.findMovie(42))
+        dao.saveDiscoverPage(listOf(response))
+        assertNull(dao.findMovie(42)!!.genres)
+        assertEquals(23L, dao.findMovie(42)!!.discoveryOrder)
+    }
     private fun movie() = MovieEntity(42, "Example", "Overview", null, null, "2026-01-01", 7.5)
 }

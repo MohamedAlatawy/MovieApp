@@ -1,7 +1,11 @@
 # TMDb network client
 
-`TmdbClient.create()` is the entry point for a future repository. Its four suspend
-functions return DTOs or throw `TmdbException`. No app wiring is added yet.
+`TmdbClient.create()` is the remote entry point used by MovieRepository and Hilt.
+Its three suspend functions return DTOs or throw `TmdbException` inside data.
+The repository and paging boundaries translate these into domain `MovieAccessException` values
+before presentation consumes them. Suspend calls and native Paging LoadState errors retain
+network, HTTP/status, malformed-response and missing-configuration distinctions. Invalid
+Search Details identity is rejected before returning domain metadata. Cancellation propagates unchanged.
 
 ## Local token configuration
 
@@ -29,24 +33,28 @@ Discover requests use `include_adult=false`, `certification_country=US`,
 Search uses only `query`, `page` and `include_adult=false`.
 Both retain pagination metadata, without orchestration.
 
-Release dates preserve every country and release record, including empty/null
-certifications. Neither Discover filters nor `adult=false` prove eligibility.
+The supported Discover filters are the required Home filtering mechanism. No
+per-candidate Details or Release Dates audit is performed. This is not independent
+certification evidence. Home Details makes one metadata enrichment request when
+opened, updating only an existing cached row. Search uses only `include_adult=false`
+as clarified by TrianglZ; Search summaries and Details remain network-only and
+nonpersisting. Home revalidation updates encountered metadata, not all historical
+rows' current eligibility. Neither endpoint's request filter is a certificate badge.
 Required IDs have no default. Missing optional fields remain null, rather than
 inventing values. Unknown JSON fields are ignored for forward compatibility.
 
 HTTP failures retain their status code (including 401/404/429/5xx). I/O failures
 map to `Network`; malformed JSON/schema failures map to `InvalidResponse`.
-Cancellation is rethrown. Unexpected programming errors are not swallowed.
+Cancellation is rethrown. Home persistence failures surface as a retryable invalid-data load error.
 Underlying response bodies/causes are deliberately omitted from mapped errors
 to keep the boundary small and avoid leaking sensitive diagnostic data.
 
-No retry scheduler, repository, domain model, eligibility rule, cache, paginator
-or DI module is provided. Constructor-independent client creation keeps local
+The client does not orchestrate paging or persistence; these belong
+to its callers. Constructor-independent client creation keeps local
 MockWebServer testing possible without Android or real credentials.
 
 Contract references:
 - https://developer.themoviedb.org/reference/discover-movie
 - https://developer.themoviedb.org/reference/search-movie
 - https://developer.themoviedb.org/reference/movie-details
-- https://developer.themoviedb.org/reference/movie-release-dates
 - https://developer.themoviedb.org/docs/authentication-application

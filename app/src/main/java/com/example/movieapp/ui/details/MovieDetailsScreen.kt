@@ -28,7 +28,7 @@ fun MovieDetailsScreen(state: MovieDetailsState, onBack: () -> Unit, onRetry: ()
             },
         )
     }) { padding ->
-        val movie = state.movie.takeUnless { state.denied }
+        val movie = state.movie
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -59,8 +59,7 @@ fun MovieDetailsScreen(state: MovieDetailsState, onBack: () -> Unit, onRetry: ()
                 Surface(shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-                    Text(movie.usCertifications?.takeIf { it.isNotBlank() }?.let { "Verified US certifications: $it" }
-                        ?: "US certification details unavailable",
+                    Text(if (state.origin == MovieOrigin.SEARCH) "US certification not checked for Search" else "Filtered Discover cache; certification not independently checked.",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.labelLarge)
                 }
@@ -68,14 +67,14 @@ fun MovieDetailsScreen(state: MovieDetailsState, onBack: () -> Unit, onRetry: ()
                 Text(movie.overview?.takeIf { it.isNotBlank() } ?: "Synopsis unavailable",
                     style = MaterialTheme.typography.bodyLarge)
             } else if (!state.loading) {
-                Text(if (state.denied) "This movie is not available for eligible browsing."
-                    else if (state.error) "Couldn't load this movie."
-                    else "No verified movie is available.", style = MaterialTheme.typography.titleLarge)
+                Text(if (state.error) "Couldn't load this movie."
+                    else "No movie is available.", style = MaterialTheme.typography.titleLarge)
             } else {
-                Text("Loading verified movie details")
+                Text("Loading movie details")
             }
             if (state.error) {
-                Text(if (movie != null) "Couldn't refresh. Showing your previously verified saved movie."
+                Text(if (movie != null && state.origin == MovieOrigin.HOME) "Couldn't refresh. Showing your cached movie."
+                    else if (movie != null) "Couldn't refresh. Showing previously loaded details."
                     else "Check your connection and try again.")
                 Button(onClick = onRetry, enabled = !state.loading) { Text("Retry") }
             }
