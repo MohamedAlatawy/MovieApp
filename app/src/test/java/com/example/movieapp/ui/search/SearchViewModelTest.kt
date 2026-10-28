@@ -2,7 +2,7 @@ package com.example.movieapp.ui.search
 
 import androidx.lifecycle.ViewModelStore
 import androidx.paging.PagingData
-import com.example.movieapp.data.backend.DemoMovie
+import com.example.movieapp.domain.model.MovieSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
@@ -23,7 +23,7 @@ class SearchViewModelTest {
         val vm = SearchViewModel { query -> flow {
             requested += query
             try {
-                emit(PagingData.empty<DemoMovie>())
+                emit(PagingData.empty<MovieSummary>())
                 awaitCancellation()
             } finally { cancelled += query }
         } }

@@ -21,13 +21,13 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import coil3.compose.SubcomposeAsyncImage
-import com.example.movieapp.data.backend.DemoMovie
-import com.example.movieapp.data.paging.HomeRemoteMediator
-import com.example.movieapp.data.remote.TmdbException
+import com.example.movieapp.domain.model.CachedMovie
+import com.example.movieapp.domain.model.MovieAccessException
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(movies: LazyPagingItems<DemoMovie>, onMovieClick: (Int) -> Unit = {}) {
+fun HomeScreen(movies: LazyPagingItems<CachedMovie>, onMovieClick: (Int) -> Unit = {}) {
     val states = movies.loadState
     val refresh = states.mediator?.refresh ?: states.refresh
     val append = states.mediator?.append ?: states.append
@@ -54,7 +54,8 @@ fun HomeScreen(movies: LazyPagingItems<DemoMovie>, onMovieClick: (Int) -> Unit =
             Box(Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {
                 when {
                     error != null -> HomeMessage(error.error, movies::retry)
-                    loading -> LoadingMovies("Finding movies for you")
+                    loading || append is LoadState.Loading -> LoadingMovies("Finding movies for you")
+                    append is LoadState.Error -> HomeMessage(append.error, movies::retry)
                     else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("No movies yet", style = MaterialTheme.typography.headlineSmall)
                         Text("Try refreshing to discover more movies.", textAlign = TextAlign.Center)
@@ -106,7 +107,7 @@ fun HomeScreen(movies: LazyPagingItems<DemoMovie>, onMovieClick: (Int) -> Unit =
 }
 
 @Composable
-private fun MovieCard(movie: DemoMovie?, onMovieClick: (Int) -> Unit) {
+private fun MovieCard(movie: CachedMovie?, onMovieClick: (Int) -> Unit) {
     Column(Modifier.clickable(enabled = movie != null) { movie?.let { onMovieClick(it.id) } },
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SubcomposeAsyncImage(
@@ -145,18 +146,16 @@ private fun LoadingMovies(label: String) {
 
 @Composable
 private fun HomeMessage(error: Throwable, retry: () -> Unit) {
-    val paused = error is HomeRemoteMediator.ContinueBrowsing
     val message = when (error) {
-        is HomeRemoteMediator.ContinueBrowsing -> "No new picks in this batch."
-        is TmdbException.MissingToken -> "Movie service is not configured. Add the TMDb token in local.properties and rebuild."
-        is TmdbException.Http -> if (error.statusCode == 401) "Movie service credentials were not accepted."
+        is MovieAccessException.MissingConfiguration -> "Movie service is not configured."
+        is MovieAccessException.Http -> if (error.statusCode == 401) "Movie service credentials were not accepted."
             else "The movie service is unavailable. Try again."
         else -> "Couldn't load movies. Check your connection and try again."
     }
     Column(Modifier.fillMaxWidth().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(message, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
         Button(onClick = retry, modifier = Modifier.padding(top = 8.dp)) {
-            Text(if (paused) "Continue browsing" else "Retry")
+            Text("Retry")
         }
     }
 }

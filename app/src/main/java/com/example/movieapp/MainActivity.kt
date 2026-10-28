@@ -1,6 +1,19 @@
 package com.example.movieapp
 
 import android.os.Bundle
+import android.os.Build
+import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import com.example.movieapp.push.MovieNotifications
+import com.example.movieapp.push.MovieUpdateSignal
+import com.example.movieapp.push.MovieUpdateSnackbar
+import javax.inject.Inject
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -9,7 +22,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.paging.compose.LazyPagingItems
-import com.example.movieapp.data.backend.DemoMovie
+import com.example.movieapp.domain.model.CachedMovie
+import com.example.movieapp.ui.details.MovieOrigin
 import com.example.movieapp.ui.search.SearchState
 import com.example.movieapp.ui.details.MovieDetailsState
 import com.example.movieapp.ui.details.MovieDetailsScreen
@@ -38,9 +52,31 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var movieUpdates: MovieUpdateSignal
+    private var notificationMovieId by mutableStateOf<Int?>(null)
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("pending_notification_movie", notificationMovieId ?: 0)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        MovieNotifications.movieId(intent)?.let {
+            detailsViewModel.close()
+            notificationMovieId = it
+        }
+    }
     override fun onStart() {
         super.onStart()
+        detailsViewModel.setActive(true)
         com.example.movieapp.push.MovieUpdates.reconcile(this)
+    }
+    override fun onStop() {
+        detailsViewModel.setActive(false)
+        super.onStop()
     }
     private val viewModel: HomeViewModel by viewModels()
     private val searchViewModel: SearchViewModel by viewModels()
@@ -48,16 +84,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        notificationMovieId = if (savedInstanceState == null) MovieNotifications.movieId(intent)
+            else savedInstanceState.getInt("pending_notification_movie").takeIf { it > 0 }
+        val preferences = getSharedPreferences("notification_feedback", MODE_PRIVATE)
+        if (Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("requested", false) &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            preferences.edit().putBoolean("requested", true).apply()
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         enableEdgeToEdge()
         setContent {
             MovieAppTheme {
                 val search by searchViewModel.state.collectAsStateWithLifecycle()
                 val details by detailsViewModel.state.collectAsStateWithLifecycle()
+                Box(Modifier.fillMaxSize()) {
                 MovieAppContent(
                     viewModel.movies.collectAsLazyPagingItems(), search, details,
                     searchViewModel::updateQuery, detailsViewModel::open,
                     detailsViewModel::close, detailsViewModel::retry,
+                    notificationMovieId, { notificationMovieId = null },
                 )
+                MovieUpdateSnackbar(movieUpdates.events, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
+                }
             }
         }
     }
@@ -65,19 +113,30 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 internal fun MovieAppContent(
-    homeMovies: LazyPagingItems<DemoMovie>,
+    homeMovies: LazyPagingItems<CachedMovie>,
     search: SearchState,
     details: MovieDetailsState,
     onQueryChange: (String) -> Unit,
-    onOpenDetails: (Int) -> Unit,
+    onOpenDetails: (Int, MovieOrigin) -> Unit,
     onCloseDetails: () -> Unit,
     onRetryDetails: () -> Unit,
+    notificationMovieId: Int? = null,
+    onNotificationConsumed: () -> Unit = {},
 ) {
     var searchSelected by rememberSaveable { mutableStateOf(false) }
     var selectedMovieId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var selectedOrigin by rememberSaveable { mutableStateOf(MovieOrigin.HOME) }
+    LaunchedEffect(notificationMovieId) {
+        notificationMovieId?.takeIf { it > 0 }?.let { id ->
+            selectedOrigin = MovieOrigin.SEARCH
+            selectedMovieId = id
+            onOpenDetails(id, MovieOrigin.SEARCH)
+            onNotificationConsumed()
+        }
+    }
     val closeDetails: () -> Unit = { selectedMovieId = null; onCloseDetails() }
     BackHandler(enabled = selectedMovieId != null, onBack = closeDetails)
-    LaunchedEffect(selectedMovieId) { selectedMovieId?.let(onOpenDetails) }
+    LaunchedEffect(selectedMovieId, selectedOrigin) { selectedMovieId?.let { onOpenDetails(it, selectedOrigin) } }
     val screens = rememberSaveableStateHolder()
     val selectedId = selectedMovieId
     if (selectedId != null) {
@@ -95,10 +154,10 @@ internal fun MovieAppContent(
                 screens.SaveableStateProvider(searchSelected) {
                     if (searchSelected) {
                         SearchScreen(search.query, onQueryChange, search.movies,
-                            onMovieClick = { id -> if (selectedMovieId == null) { selectedMovieId = id } })
+                            onMovieClick = { id -> if (selectedMovieId == null) { selectedOrigin = if (searchSelected) MovieOrigin.SEARCH else MovieOrigin.HOME; selectedMovieId = id } })
                     } else {
                         HomeScreen(homeMovies,
-                            onMovieClick = { id -> if (selectedMovieId == null) { selectedMovieId = id } })
+                            onMovieClick = { id -> if (selectedMovieId == null) { selectedOrigin = if (searchSelected) MovieOrigin.SEARCH else MovieOrigin.HOME; selectedMovieId = id } })
                     }
                 }
             }

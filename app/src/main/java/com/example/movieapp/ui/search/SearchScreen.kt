@@ -23,14 +23,14 @@ import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil3.compose.SubcomposeAsyncImage
-import com.example.movieapp.data.backend.DemoMovie
-import com.example.movieapp.data.paging.SearchPagingSource
-import com.example.movieapp.data.remote.TmdbException
+import com.example.movieapp.domain.model.MovieSummary
+import com.example.movieapp.domain.model.MovieAccessException
+
 import com.example.movieapp.ui.home.posterUrl
 import kotlinx.coroutines.flow.Flow
 
 @Composable
-fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<PagingData<DemoMovie>>,
+fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<PagingData<MovieSummary>>,
     onMovieClick: (Int) -> Unit = {}) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Text("Find a movie · Demo Data", Modifier.padding(start = 16.dp, top = 16.dp),
@@ -48,7 +48,7 @@ fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<P
             val movies = results.collectAsLazyPagingItems()
             when {
                 query.isBlank() -> SearchMessage("Search by movie title", "Browse demo movies from the backend.")
-                movies.itemCount == 0 -> when (val refresh = movies.loadState.refresh) {
+                movies.itemCount == 0 -> when (val refresh = movies.loadState.let { if (it.refresh is LoadState.NotLoading) it.append else it.refresh }) {
                     is LoadState.Loading -> SearchLoading()
                     is LoadState.Error -> SearchError(refresh.error, movies::retry)
                     is LoadState.NotLoading -> SearchMessage("No results", "Try another movie title.")
@@ -78,7 +78,7 @@ fun SearchScreen(query: String, onQueryChange: (String) -> Unit, results: Flow<P
 }
 
 @Composable
-private fun SearchMovieCard(movie: DemoMovie, onMovieClick: (Int) -> Unit) {
+private fun SearchMovieCard(movie: MovieSummary, onMovieClick: (Int) -> Unit) {
     Column(Modifier.clickable { onMovieClick(movie.id) }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SubcomposeAsyncImage(
             model = posterUrl(movie.posterPath), contentDescription = "Poster for ${movie.title}",
@@ -122,17 +122,15 @@ private fun SearchLoading() {
 
 @Composable
 private fun SearchError(error: Throwable, retry: () -> Unit) {
-    val paused = error is SearchPagingSource.ContinueSearching
     val message = when {
-        paused -> "No eligible movies in this batch."
-        error is TmdbException.MissingToken -> "Movie service is not configured."
-        error is TmdbException.Http && error.statusCode == 401 -> "Movie service credentials were not accepted."
+        error is MovieAccessException.MissingConfiguration -> "Movie service is not configured."
+        error is MovieAccessException.Http && error.statusCode == 401 -> "Movie service credentials were not accepted."
         else -> "Couldn't search movies. Try again."
     }
     Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(message, textAlign = TextAlign.Center)
         Button(onClick = retry, modifier = Modifier.padding(top = 8.dp)) {
-            Text(if (paused) "Continue searching" else "Retry")
+            Text("Retry")
         }
     }
 }

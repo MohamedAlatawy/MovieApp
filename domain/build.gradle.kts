@@ -3,6 +3,8 @@ plugins {
 }
 
 dependencies {
+    implementation(libs.kotlinx.coroutines.core)
+    implementation("androidx.paging:paging-common:${libs.versions.paging.get()}")
     testImplementation(libs.junit)
 }
 

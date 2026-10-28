@@ -28,7 +28,7 @@ fun MovieDetailsScreen(state: MovieDetailsState, onBack: () -> Unit, onRetry: ()
             },
         )
     }) { padding ->
-        val movie = state.movie.takeUnless { state.denied }
+        val movie = state.movie
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -68,14 +68,13 @@ fun MovieDetailsScreen(state: MovieDetailsState, onBack: () -> Unit, onRetry: ()
                     style = MaterialTheme.typography.bodyLarge)
                 Text("Updated: ${movie.lastModified}", style = MaterialTheme.typography.bodySmall)
             } else if (!state.loading) {
-                Text(if (state.denied) "This demo movie is unavailable."
-                    else if (state.error) "Couldn't load this movie."
+                Text(if (state.error) "Couldn't load this movie."
                     else "No saved demo movie is available.", style = MaterialTheme.typography.titleLarge)
             } else {
                 Text("Loading demo movie details")
             }
             if (state.error) {
-                Text(if (movie != null) "Couldn't refresh. Showing your saved demo movie."
+                Text(if (movie != null) "Couldn't refresh. Showing the last loaded demo movie."
                     else "Check your connection and try again.")
                 Button(onClick = onRetry, enabled = !state.loading) { Text("Retry") }
             }

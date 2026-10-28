@@ -55,23 +55,67 @@ a newly generated server credential securely before separately authorizing any l
 
 `movie_updated` events require a positive decimal `movieId` and ISO UTC `updatedAt`.
 Only the ID enters WorkManager. Network-constrained work refetches the authoritative
-backend object and upserts Demo Room. Newer cached timestamps win over stale responses.
-Unique per-movie work replaces pending work for repeated hints; failures retain cache
-and receive at most three retries. Foreground reconciliation refetches cached IDs without
-periodic polling. Home and Details observe Room; Search uses the same title predicate and
-ID order as the backend, so reconciled title edits also update visible membership.
+backend object for existing Home rows only; an uncached ID is a successful no-op.
+Newer cached timestamps win over stale responses. Unique per-movie work replaces
+pending work for repeated hints; failures preserve cache and receive at most three
+retries. Foreground reconciliation refetches cached IDs without periodic polling.
+
+Independently, an app-scoped non-replaying ID signal refreshes an active matching
+SEARCH Details screen directly into memory through the domain Use Case. It does not
+read or write Room and does not wait for a Worker. Repeated in-flight hints coalesce
+into a subsequent request; navigation/backgrounding cancels obsolete Search work.
+Failed refresh retains the displayed movie with Retry. Home Details observes Room.
+
+The signal is transient, not guaranteed across process death or inactive observers.
+WorkManager is the deferred Home path. Resuming an open Search Details screen fetches
+current data normally. Search lists use network Paging only, with no offline fallback,
+and do not derive result membership from Room.
+
+Home page writes are atomic and preserve legacy rows. Backend order is ascending ID,
+so no schema/order migration is needed. Unchanged/empty nonterminal pages invalidate
+the session's Room PagingSource after progress commits, allowing native boundary
+progress without manual scanning. Both databases and existing data are preserved.
 
 ```powershell
-.\gradlew.bat :domain:test :data:testDebugUnitTest :app:testDebugUnitTest
+.\gradlew.bat :domain:test :data:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
 .\gradlew.bat :data:connectedDebugAndroidTest :app:connectedDebugAndroidTest
 ```
 
-Backend JVM tests use MockWebServer. Demo Room instrumentation verifies ordering,
-title reconciliation, stale/duplicate safety and verified-cache isolation.
-`BackendUpdateTest` simulates an event, runs the real refresh worker against a local
-HTTP fixture, and asserts both Room and visible Details update. It requires no Firebase
-credential and does not claim Firebase delivery. Existing navigation and scroll tests
-exercise the demo model; original Data/Domain TMDb tests remain intact.
+Backend JVM tests use MockWebServer. Demo Room tests cover transactions, rollback,
+ordering, stale/duplicate responses, existing-row-only writes and cache isolation.
+The real Room/Pager regression covers empty pages, append error/retry and unchanged
+duplicate pages. Compose tests retain Search zero-item append Retry and Back/scroll
+restoration. BackendUpdateTest uses local HTTP fixtures for Worker-to-Room-to-UI and
+direct Search-event-to-UI refresh, verifying that Search leaves Home rows unchanged.
+No real Firebase send, normal-database PATCH or external delivery is tested.
+
+The reviewer must use an Android client configuration for the same Firebase project
+as the backend sender (movieapp-19491 for the owner's environment), with package
+com.example.movieapp. A reviewer using a different project must arrange matching
+client/server configuration separately; topic names alone do not bridge projects.
+The /admin portal remains a local development page, not a public hosted service.
+
+## Android notification feedback
+
+The backend payload remains data-only. Android locally posts generic **Movie updated**
+notifications on the **Movie updates** channel, without fetching a title. Android 13+
+requests POST_NOTIFICATIONS once from the Activity; the merged manifest already supplies
+the permission through the messaging dependency. A denial is respected without repeated
+prompts. App/channel notification settings remain authoritative; enable them manually in
+Android settings if desired. Permission is not required for FCM data handling or cache work.
+
+Notification taps use an immutable per-movie PendingIntent and open network-only Details,
+so uncached movies work without insertion into Home Room. Cold starts and existing-task
+intents use the same screen. Repeated updates replace the same movie's system notification.
+No navigation happens merely because an event arrives.
+
+Foreground receipt shows a brief **Movie update received** Snackbar, not a claim that
+the Worker finished. It is dismissed on backgrounding and is not replayed on resume.
+Both independent data paths remain active even if notification posting fails or is denied.
+No immediate delivery guarantee is made for background, force-stopped or dead processes.
+
+The published Backend integration document's earlier Room-backed Search description
+is historical; this Android branch now follows the network-only contracts above.
 
 For a real end-to-end send, separately confirm a fresh server credential, explicit
 bounded-send permission, a controlled demo record and successful device topic subscription.

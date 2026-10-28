@@ -11,8 +11,11 @@ import androidx.paging.PagingState
 import androidx.paging.RemoteMediator
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
-import com.example.movieapp.data.backend.DemoDatabase as MovieDatabase
-import com.example.movieapp.data.paging.HomeRemoteMediator
+import com.example.movieapp.data.backend.DemoDatabase
+import com.example.movieapp.domain.model.CachedMovie
+
+import androidx.paging.map
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -22,7 +25,7 @@ import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.LazyPagingItems
 import com.example.movieapp.data.backend.DemoMovie
-import com.example.movieapp.data.remote.TmdbException
+import com.example.movieapp.domain.model.MovieAccessException
 import com.example.movieapp.ui.theme.MovieAppTheme
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,12 +39,12 @@ class HomeScreenTest {
     @Test fun localRefreshDoesNotChangeNetworkFeedbackOrMoviePosition() {
         val row = DemoMovie(1, "Cached movie", null, null, "2026", null)
         fun page(source: LoadState, remote: LoadState) = PagingData.from(
-            listOf(row),
+            listOf(row.toCachedMovie()),
             sourceLoadStates = LoadStates(source, idle, idle),
             mediatorLoadStates = LoadStates(remote, idle, idle),
         )
         val flow = MutableStateFlow(page(idle, idle))
-        lateinit var movies: LazyPagingItems<DemoMovie>
+        lateinit var movies: LazyPagingItems<CachedMovie>
         compose.setContent {
             movies = flow.collectAsLazyPagingItems()
             MovieAppTheme { HomeScreen(movies) }
@@ -69,9 +72,9 @@ class HomeScreenTest {
     }
 
     @OptIn(ExperimentalPagingApi::class)
-    @Test fun continueKeepsViewportDuringRoomUpdate() = runBlocking {
+    @Test fun retryKeepsViewportDuringRoomUpdate() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val database = Room.inMemoryDatabaseBuilder(context, MovieDatabase::class.java).build()
+        val database = Room.inMemoryDatabaseBuilder(context, DemoDatabase::class.java).build()
         val allowWrite = CompletableDeferred<Unit>()
         val finishLoad = CompletableDeferred<Unit>()
         val retryStarted = CompletableDeferred<Unit>()
@@ -79,7 +82,7 @@ class HomeScreenTest {
         try {
             val dao = database.movies()
             val rows = (1..80).map { DemoMovie(it, "Movie %03d".format(it), null, null, "2026", null) }
-            rows.forEach { dao.save(listOf(it)) }
+            dao.save(rows)
             var paused = false
             val mediator = object : RemoteMediator<Int, DemoMovie>() {
                 override suspend fun load(loadType: LoadType, state: PagingState<Int, DemoMovie>): MediatorResult {
@@ -87,7 +90,7 @@ class HomeScreenTest {
                     if (loadType == LoadType.PREPEND) return MediatorResult.Success(true)
                     if (!paused) {
                         paused = true
-                        return MediatorResult.Error(HomeRemoteMediator.ContinueBrowsing())
+                        return MediatorResult.Error(MovieAccessException.Network())
                     }
                     retryStarted.complete(Unit)
                     allowWrite.await()
@@ -103,15 +106,15 @@ class HomeScreenTest {
                 remoteMediator = mediator, pagingSourceFactory = {
                     generations.incrementAndGet()
                     dao.pagingSource()
-                }).flow
-            lateinit var movies: LazyPagingItems<DemoMovie>
+                }).flow.map { page -> page.map { it.toCachedMovie() } }
+            lateinit var movies: LazyPagingItems<CachedMovie>
             compose.setContent {
                 movies = flow.collectAsLazyPagingItems()
                 MovieAppTheme { HomeScreen(movies) }
             }
-            compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Continue browsing"))
+            compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Retry"))
             val before = compose.onNodeWithText("Movie 080").fetchSemanticsNode().boundsInRoot.top
-            compose.onNodeWithText("Continue browsing").performClick()
+            compose.onNodeWithText("Retry").performClick()
             compose.waitUntil(5_000) { retryStarted.isCompleted }
             compose.waitForIdle()
             val loading = compose.onNodeWithText("Movie 080").fetchSemanticsNode().boundsInRoot.top
@@ -137,9 +140,60 @@ class HomeScreenTest {
         }
     }
 
+    @OptIn(ExperimentalPagingApi::class)
+    @Test fun realRoomMediatorEmptyAppendShowsLoadingErrorAndRetryRecovery() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext, DemoDatabase::class.java,
+        ).build()
+        val release = CompletableDeferred<Unit>()
+        var fail = true
+        val calls = java.util.Collections.synchronizedList(mutableListOf<Int>())
+        val sources = androidx.paging.InvalidatingPagingSourceFactory(database.movies()::pagingSource)
+        val api = object : com.example.movieapp.data.backend.BackendApi {
+            override suspend fun movie(id: Int): com.example.movieapp.data.backend.BackendMovieDto = error("No details")
+            override suspend fun search(query: String, page: Int, size: Int): com.example.movieapp.data.backend.BackendPage = error("No search")
+            override suspend fun movies(page: Int, size: Int): com.example.movieapp.data.backend.BackendPage {
+                calls += page
+                if (page == 2) {
+                    release.await()
+                    if (fail) throw java.io.IOException()
+                }
+                val rows = if (page == 2) listOf(com.example.movieapp.data.backend.BackendMovieDto(
+                    8, "Recovered movie", "Demo", "2020-01-01", null, 8.0, emptyList(), false, null,
+                    "2026-01-01T00:00:00Z", "synthetic-demo", "unverified", true)) else emptyList()
+                return com.example.movieapp.data.backend.BackendPage(rows, page, 20, 21, 2, page < 2)
+            }
+        }
+        val mediator = com.example.movieapp.data.backend.BackendRemoteMediator(api, database.movies(), sources::invalidate)
+        val flow = Pager(PagingConfig(20), remoteMediator = mediator, pagingSourceFactory = sources)
+            .flow.map { page -> page.map { it.toCachedMovie() } }
+        lateinit var movies: LazyPagingItems<CachedMovie>
+        try {
+            compose.setContent {
+                movies = flow.collectAsLazyPagingItems()
+                MovieAppTheme { HomeScreen(movies) }
+            }
+            compose.waitUntil(5_000) { calls.contains(2) && movies.loadState.mediator?.append is LoadState.Loading }
+            compose.onNodeWithText("Finding movies for you").assertIsDisplayed()
+            compose.onNodeWithText("No movies yet").assertDoesNotExist()
+            release.complete(Unit)
+            compose.waitUntil(5_000) { movies.loadState.mediator?.append is LoadState.Error }
+            compose.onNodeWithText("Retry").assertIsDisplayed()
+            compose.onNodeWithText("No movies yet").assertDoesNotExist()
+            fail = false
+            compose.onNodeWithText("Retry").performClick()
+            compose.waitUntil(5_000) { movies.itemCount == 1 }
+            compose.onNodeWithText("Recovered movie").assertIsDisplayed()
+            assertEquals(listOf(1, 2, 2), calls.toList())
+        } finally {
+            release.complete(Unit)
+            compose.waitForIdle()
+            database.close()
+        }
+    }
     private fun show(rows: List<DemoMovie> = emptyList(), refresh: LoadState = idle,
                      append: LoadState = idle) {
-        val flow = flowOf(PagingData.from(rows,
+        val flow = flowOf(PagingData.from(rows.map { it.toCachedMovie() },
             sourceLoadStates = LoadStates(idle, idle, idle),
             mediatorLoadStates = LoadStates(refresh, idle, append)))
         compose.setContent { MovieAppTheme { HomeScreen(flow.collectAsLazyPagingItems()) } }
@@ -157,16 +211,18 @@ class HomeScreenTest {
     }
 
     @Test fun missingTokenShowsConfigurationErrorAndRetry() {
-        show(refresh = LoadState.Error(TmdbException.MissingToken()))
+        show(refresh = LoadState.Error(MovieAccessException.MissingConfiguration()))
         compose.onNodeWithText("Movie service is not configured.", substring = true).assertIsDisplayed()
         compose.onNodeWithText("Retry").assertHasClickAction()
     }
 
     @Test fun cachedMovieStaysVisibleWithAppendError() {
         show(listOf(DemoMovie(1, "Cached movie", null, null, "2026-01-01", null)),
-            append = LoadState.Error(TmdbException.Network()))
+            append = LoadState.Error(MovieAccessException.Network()))
         compose.onNodeWithText("Cached movie").assertIsDisplayed()
         compose.onNodeWithText("2026").assertIsDisplayed()
         compose.onNodeWithText("Retry").assertExists()
     }
 }
+
+private fun DemoMovie.toCachedMovie() = CachedMovie(id, title, overview, posterPath, releaseDate, voteAverage, genres, lastModified)

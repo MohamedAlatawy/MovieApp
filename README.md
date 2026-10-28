@@ -1,104 +1,62 @@
-# MovieApp
+# MovieApp — Custom Backend Bonus
 
-## Project overview
+This branch keeps MovieApp's Home, Search and shared Details UI, but uses the local ASP.NET Core backend for every active movie request. Data is synthetic demo content, not independently verified certification evidence. Released Core remains on main; no Core history was merged into this branch.
 
-A native Android app for movie discovery, dynamic title-based search, movie details and cached browsing. Movies are checked against adult-content and US certification evidence before entering the displayable cache.
-
-## Features
-
-- **Home:** Paging 3 grid with posters, titles and years; cached content stays visible during refresh or network failure.
-- **Search:** trimmed queries, 400 ms debounce, cancellation of obsolete searches and verified results in TMDb Search order.
-- **Details:** poster, synopsis, date, rating out of 10, genres and verified US certifications, with missing-data fallbacks.
-- **Navigation:** cards open Details by movie ID. On-screen and Android system Back preserve the originating screen's query and scroll position.
-- Loading, empty, unavailable, error and Retry states, plus user-triggered continuation when a batch yields no eligible results.
-- Offline Home/Details access to previously verified cached metadata. Posters depend on image-cache availability; new movies require connectivity.
-
-## Tech stack
-
-Kotlin, Jetpack Compose / Material 3, MVVM with ViewModels, StateFlow and coroutines, Hilt, Retrofit / OkHttp, Kotlinx Serialization, Paging 3, Room and Coil.
-
-Dependencies are centralized in [gradle/libs.versions.toml](gradle/libs.versions.toml).
+See [BONUS_ANDROID_SETUP.md](BONUS_ANDROID_SETUP.md) for backend startup, ADB reverse, Firebase client configuration and deterministic tests.
 
 ## Architecture
 
-| Module | Responsibility |
-| --- | --- |
-| :app | Compose screens, ViewModels, navigation state and Hilt wiring. |
-| :data | TMDb client/DTOs, verified movie repository, Room cache and Home/Search paging. |
-| :domain | Pure Kotlin/JVM eligibility policy and input models. |
+Presentation → domain Use Cases/models/repository contract ← data implementation.
 
-The repository retrieves Details and Release Dates for the same movie, evaluates the domain policy, then saves allowed metadata or removes denied content. Home reads Room through a PagingSource and RemoteMediator. Search uses a query-scoped PagingSource returning verified cache rows in search order. Details observes its Room row and requests a verified refresh.
+- Domain owns immutable MovieSummary, MovieDetails and CachedMovie, semantic MovieAccessException failures and five focused application Use Cases. It uses Coroutines and Paging-common JVM APIs; it is not completely framework-independent.
+- BackendRepository implements that contract. Hilt in app constructs the backend client, isolated Room database and repository, and provides the domain operations.
+- ViewModels/screens consume domain/presentation models. State management is MVVM with MVI-style one-way state flow, not a reducer framework.
+- Home uses native Room Paging + BackendRemoteMediator. Search uses BackendSearchPagingSource directly; no Search cache or offline fallback.
+- Details has explicit HOME and SEARCH modes with one UI. Movie ID and origin are saveable; Back preserves list/query state.
 
-Navigation uses Compose saved state and a selected movie ID, without a navigation library.
+## Home cache
 
-## Movie eligibility
+The unchanged version-1 backend-demo.db is separate from the historical TMDb database. Backend pages are ordered by stable ID. A whole validated page is merged in one transaction; failed persistence does not advance the raw page. Newer timestamps win, duplicate pages are idempotent, and null posters preserve existing usable URLs. Backend responses contain overview, date, rating and genres; explicit empty text/genres are authoritative.
 
-- A positive movie ID must match the evidence. Trusted adult evidence must explicitly be false; true or unknown denies.
-- At least one nonblank US certification is required. Every nonblank US value must be **G, PG or PG-13**.
-- R, NC-17 and unrecognized US values deny, including conflicting allowed/restricted evidence. Blank records neither authorize nor veto separate valid proof. Non-US records cannot authorize US eligibility.
-- Discover's adult/certification filters are only a candidate prefilter. Search candidates undergo the same independent verification.
-- Failed or incomplete retrieval never authorizes an unverified movie. Request failures preserve previously verified cache rows; successfully verified denial removes them.
+Home accumulates loaded rows and retains legacy rows and offline content. It does not clear, evict or claim to be a continuously current full catalog. Empty or unchanged nonterminal pages do not invalidate Room themselves, so a session-owned InvalidatingPagingSourceFactory is invalidated after successful progress. This allows the next native boundary load without manual scanning.
 
-Details displays all distinct allowed US certification values deterministically, rather than arbitrarily selecting one.
+Home Details observes Room immediately and enriches only an existing row with one Details request. Missing rows are a no-op; errors including 404 preserve existing content. The existence check is repeated inside the write transaction.
 
-## Caching and paging
+## Search and Details
 
-Room is Home's display source. Persisted discoveryOrder places new verified rows after existing rows; updates and refresh preserve existing positions. Search can add verified movies to this shared cache, but its own result order follows the active TMDb query, not Home's order. The cache is not a continuously reranked popularity list.
+Search trims query identity, delays requests 400 ms and immediately cancels superseded query work. Each normal paging load requests one backend page with query/page/pageSize only. Results retain server order; empty pages use server metadata. Zero-item append loading/errors offer loading feedback and Retry.
 
-Home tracks raw TMDb page progress within its Pager session. Home and Search scan at most three raw pages per load before offering continuation when needed; an empty eligible batch is not remote exhaustion. Movie IDs prevent duplicate stored rows.
+Search summaries and Search Details never read/write/delete Room, including for an ID already cached at Home. Details metadata stays in ViewModel memory. There is no offline Search guarantee or per-candidate Details request. Poster placeholders and demo/unverified labels remain honest.
 
-Room version 3 includes data-preserving migrations **1 → 2** (ordering) and **2 → 3** (genres/certifications). Exported schemas are in data/schemas. Older rows receive new metadata after a successful verified refresh.
+## Independent movie-update paths
 
-## Setup and run
+Validated movie_updated events carry an ID, not authoritative content:
 
-1. Open the repository root in Android Studio with support for the configured **Android Gradle Plugin 9.4.1**.
-2. Install **Android SDK Platform 37**. Use an Android 8.0 / API 26 or newer device or emulator. The app compiles and targets API 37.
-3. Use the checked-in **Gradle 9.6.0** wrapper. The daemon criteria in gradle/gradle-daemon-jvm.properties select **Java 25**; use a compatible JDK for Android Studio/command-line Gradle. Java/Kotlin bytecode targets remain 11.
-4. Let Android Studio configure the SDK location in root local.properties. Add your TMDb **API Read Access Token**, without quotes or the Bearer prefix:
+1. WorkManager schedules network-constrained existing-Home-row refresh. An uncached ID does not create a row. Room Flow updates Home and Home Details.
+2. A small app-scoped, non-replaying movie-ID signal reaches active matching SEARCH Details. It refetches directly through the domain Use Case, independently of cache existence, Worker completion or scheduling success.
 
-   ~~~properties
-   tmdb.readAccessToken=YOUR_TMDB_API_READ_ACCESS_TOKEN
-   ~~~
+Requests do not overlap in a Details ViewModel. Multiple hints during a request coalesce into one subsequent fetch. ID/origin changes and backgrounding cancel obsolete Search work; a generation guard also rejects late responses. Failure keeps the previous content with Retry. No exactly-once promise is made.
 
-   Keep the existing SDK entry. local.properties is ignored and must not be committed. Do not commit or log credentials.
+The UI signal exists only in-process; it does not survive process death or replay inactive events. WorkManager separately handles deferred Home work. Returning to the foreground reconciles cached IDs and refetches an open Search Details screen. Search lists are short-lived snapshots and are not rewritten by Home cache updates.
 
-5. Sync Gradle, select the app run configuration and run on the device. To build from PowerShell at the repository root:
+## Notification feedback
 
-   ~~~powershell
-   .\gradlew.bat :app:assembleDebug
-   ~~~
+Received valid data-only updates also produce a local notification on the **Movie updates** channel. Android 13+ asks for notification permission once from the Activity; denial or disabled app/channel notifications leave both data-update paths working. Enable notifications later through Android settings if desired. No extra request is made to obtain notification text.
 
-   APK output: app/build/outputs/apk/debug/app-debug.apk.
+Tapping a notification opens the existing Details screen using the network-only SEARCH loading mode, including for movies absent from Home cache. Immutable per-movie PendingIntents reuse the existing Activity task; repeated updates replace that movie's notification. Arrival alone never navigates.
 
-The Data build reads this key into BuildConfig; the existing client supplies Bearer authentication. Rebuild after changing the token. An absent token permits compilation and deterministic tests; live requests report a configuration error. A token bundled into an APK is extractable, so a distributed APK is not secret storage.
+While the Activity is started, one Snackbar says **Movie update received**. It confirms receipt, not successful Room synchronization. Background hints are not replayed as Snackbars on resume. Notification posting failure cannot block Search Details refresh or Worker scheduling. Delivery remains dependent on Android/FCM; force-stop and process death do not provide guaranteed transient feedback.
 
-## Tests
+## Compatibility and verification
 
-| Category | Coverage |
-| --- | --- |
-| Domain JVM | Classifications, identity, adult evidence and conflicting/missing certification. |
-| Data JVM | MockWebServer API contracts/errors, verified cache behavior and Home/Search paging. |
-| App JVM | Search debounce/cancellation, Details state handling and poster URL validation. |
-| Room instrumentation | Persistence, Flow/PagingSource behavior and migrations. |
-| Compose instrumentation | Home/Search states, Details presentation and navigation/query/scroll preservation. |
+The API routes/JSON, Firebase project/topic, localhost configuration, Room entity/schema/version and dependency versions are unchanged. Domain adds only the existing Coroutines/Paging-common dependencies.
 
-Run from the repository root in PowerShell:
+The historical TMDb implementation and verified database/migrations remain isolated, inactive compatibility code on this Bonus branch. They are not bound into the active movie graph; no TMDb token or backend admin key is sent by BackendApi.
 
-~~~powershell
-.\gradlew.bat :domain:test
-.\gradlew.bat :data:testDebugUnitTest
-.\gradlew.bat :app:testDebugUnitTest
-~~~
+Run:
+```powershell
+.\gradlew.bat :domain:test :data:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
+.\gradlew.bat :data:connectedDebugAndroidTest :app:connectedDebugAndroidTest
+```
 
-For instrumentation, connect an API 26+ Android device or start a suitable emulator:
-
-~~~powershell
-.\gradlew.bat :data:connectedDebugAndroidTest
-.\gradlew.bat :app:connectedDebugAndroidTest
-~~~
-
-Automated tests use local fixtures/fakes and MockWebServer rather than live TMDb credentials.
-
-## Known scope
-
-No user accounts, favorites or watchlists. Search-query ranking is session-based and is not persisted for offline Search.
+Tests cover domain delegation/cancellation, backend contract/error mapping, no-Search-Room boundaries, native Paging retry, real Room atomicity/isolation, Details origins, FCM hints and Worker/UI updates through deterministic fixtures. They do not establish external FCM delivery or live server latency. No real FCM send or authenticated PATCH is needed for these tests.
